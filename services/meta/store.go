@@ -15,7 +15,7 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/hashicorp/raft"
-	"gitlab.alibaba-inc.com/yuansheng.xt/myts/services/meta/internal"
+	"github.com/colinsage/myts/services/meta/internal"
 	"github.com/influxdata/influxdb/services/meta"
 )
 

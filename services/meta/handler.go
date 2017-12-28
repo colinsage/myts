@@ -19,7 +19,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/hashicorp/raft"
 	"github.com/influxdata/influxdb/uuid"
-	"gitlab.alibaba-inc.com/yuansheng.xt/myts/services/meta/internal"
+	"github.com/colinsage/myts/services/meta/internal"
 	"github.com/influxdata/influxdb/services/meta"
 )
 

@@ -23,7 +23,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"golang.org/x/crypto/bcrypt"
 
-	"gitlab.alibaba-inc.com/yuansheng.xt/myts/services/meta/internal"
+	"github.com/colinsage/myts/services/meta/internal"
 	"github.com/influxdata/influxdb/services/meta"
 	"github.com/influxdata/influxql"
 )

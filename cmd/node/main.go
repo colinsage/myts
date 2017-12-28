@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"github.com/uber-go/zap"
 
-	"gitlab.alibaba-inc.com/yuansheng.xt/myts/cmd/node/run"
+	"github.com/colinsage/myts/cmd/node/run"
 	"path/filepath"
 	"log"
 )

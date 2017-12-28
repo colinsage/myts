@@ -7,7 +7,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"fmt"
 	"github.com/influxdata/influxdb/services/meta"
-	"gitlab.alibaba-inc.com/yuansheng.xt/myts/services/meta/internal"
+	"github.com/colinsage/myts/services/meta/internal"
 	"encoding/json"
 	"github.com/influxdata/influxdb"
 	"github.com/influxdata/influxql"

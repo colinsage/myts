@@ -17,8 +17,8 @@ import (
 	"github.com/influxdata/influxdb/services/precreator"
 	"github.com/influxdata/influxdb/monitor"
 
-	"gitlab.alibaba-inc.com/yuansheng.xt/myts/services/meta"
-	"gitlab.alibaba-inc.com/yuansheng.xt/myts/services/data"
+	"github.com/colinsage/myts/services/meta"
+	"github.com/colinsage/myts/services/data"
 
 )
 

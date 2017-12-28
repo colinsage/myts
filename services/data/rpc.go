@@ -8,7 +8,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/influxdata/influxdb/query"
 	"github.com/influxdata/influxdb/models"
-	"gitlab.alibaba-inc.com/yuansheng.xt/myts/services/data/internal"
+	"github.com/colinsage/myts/services/data/internal"
 	"github.com/influxdata/influxql"
 	"regexp"
 )

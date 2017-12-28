@@ -20,8 +20,8 @@ import (
 	_ "github.com/influxdata/influxdb/tsdb/index"
 	"github.com/influxdata/influxdb/tcp"
 
-	thisMeta "gitlab.alibaba-inc.com/yuansheng.xt/myts/services/meta"
-	"gitlab.alibaba-inc.com/yuansheng.xt/myts/services/data"
+	thisMeta "github.com/colinsage/myts/services/meta"
+	"github.com/colinsage/myts/services/data"
 
 
 	"github.com/influxdata/influxdb/query"
