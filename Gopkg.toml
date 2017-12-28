@@ -1,0 +1,130 @@
+
+# Gopkg.toml example
+#
+# Refer to https://github.com/golang/dep/blob/master/docs/Gopkg.toml.md
+# for detailed Gopkg.toml documentation.
+#
+# required = ["github.com/user/thing/cmd/thing"]
+# ignored = ["github.com/user/project/pkgX", "bitbucket.org/user/project/pkgA/pkgY"]
+#
+
+
+[[constraint]]
+  name = "github.com/influxdata/influxdb"
+  version = "1.4.2"
+
+[[constraint]]
+  name = "github.com/BurntSushi/toml"
+  revision = "a368813c5e648fee92e5f6c30e3944ff9d5e8895"
+
+[[constraint]]
+  name = "github.com/bmizerany/pat"
+  revision = "c068ca2f0aacee5ac3681d68e4d0a003b7d1fd2c"
+
+[[constraint]]
+  name = "github.com/boltdb/bolt"
+  revision = "4b1ebc1869ad66568b313d0dc410e2be72670dda"
+
+[[constraint]]
+   name = "github.com/cespare/xxhash"
+   revision = "1b6d2e40c16ba0dfce5c8eac2480ad6e7394819b"
+
+[[constraint]]
+   name = "github.com/davecgh/go-spew"
+   revision = "346938d642f2ec3594ed81d874461961cd0faa76"
+
+[[constraint]]
+   name = "github.com/dgrijalva/jwt-go"
+   revision = "24c63f56522a87ec5339cc3567883f1039378fdb"
+
+[[constraint]]
+   name = "github.com/dgryski/go-bits"
+   revision = "2ad8d707cc05b1815ce6ff2543bb5e8d8f9298ef"
+
+[[constraint]]
+   name = "github.com/dgryski/go-bitstream"
+   revision = "7d46cd22db7004f0cceb6f7975824b560cf0e486"
+
+[[constraint]]
+   name = "github.com/gogo/protobuf"
+   revision = "1c2b16bc280d6635de6c52fc1471ab962dc36ec9"
+
+[[constraint]]
+   name = "github.com/golang/snappy"
+   revision = "d9eb7a3d35ec988b8585d4a0068e462c27d28380"
+
+[[constraint]]
+   name = "github.com/google/go-cmp"
+   revision = "18107e6c56edb2d51f965f7d68e59404f0daee54"
+
+[[constraint]]
+   name = "github.com/influxdata/usage-client"
+   revision = "6d3895376368aa52a3a81d2a16e90f0f52371967"
+
+[[constraint]]
+   name = "github.com/influxdata/yamux"
+   revision = "1f58ded512de5feabbe30b60c7d33a7a896c5f16"
+
+[[constraint]]
+   name = "github.com/influxdata/yarpc"
+   revision = "036268cdec22b7074cd6d50cc6d7315c667063c7"
+
+[[constraint]]
+   name = "github.com/jwilder/encoding"
+   revision = "27894731927e49b0a9023f00312be26733744815"
+
+[[constraint]]
+   name = "github.com/paulbellamy/ratecounter"
+   revision = "5a11f585a31379765c190c033b6ad39956584447"
+
+[[constraint]]
+   name = "github.com/peterh/liner"
+   revision = "88609521dc4b6c858fd4c98b628147da928ce4ac"
+
+[[constraint]]
+   name = "github.com/philhofer/fwd"
+   revision = "1612a298117663d7bc9a760ae20d383413859798"
+
+[[constraint]]
+   name = "github.com/retailnext/hllpp"
+   revision = "38a7bb71b483e855d35010808143beaf05b67f9d"
+
+[[constraint]]
+   name = "github.com/spaolacci/murmur3"
+   revision = "0d12bf811670bf6a1a63828dfbd003eded177fce"
+
+[[constraint]]
+   name = "github.com/tinylib/msgp"
+   revision = "ad0ff2e232ad2e37faf67087fb24bf8d04a8ce20"
+
+[[constraint]]
+   name = "github.com/uber-go/atomic"
+   revision = "74ca5ec650841aee9f289dce76e928313a37cbc6"
+
+[[constraint]]
+  name = "github.com/uber-go/zap"
+  revision = "fbae0281ffd546fa6d1959fec6075ac5da7fb577"
+
+[[constraint]]
+  name = "github.com/xlab/treeprint"
+  revision = "06dfc6fa17cdde904617990a0c2d89e3e332dbb3"
+
+[[constraint]]
+  name = "golang.org/x/crypto"
+  revision = "9477e0b78b9ac3d0b03822fd95422e2fe07627cd"
+
+[[constraint]]
+  name = "golang.org/x/sys"
+  revision = "062cd7e4e68206d8bab9b18396626e855c992658"
+
+[[constraint]]
+  name = "golang.org/x/text"
+  revision = "a71fd10341b064c10f4a81ceac72bcf70f26ea34"
+
+[[constraint]]
+  name = "github.com/hashicorp/raft"
+  revision = "0919aa6a43618e19335d2ac609d4ff079ce75ed8"
+
+[[constraint]]
+  name = "github.com/hashicorp/raft-boltdb"
+  revision = "6e5ba93211eaf8d9a2ad7e41ffad8c6f160f9fe3"
