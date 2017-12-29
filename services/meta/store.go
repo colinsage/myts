@@ -3,7 +3,6 @@ package meta
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
@@ -17,6 +16,7 @@ import (
 	"github.com/hashicorp/raft"
 	"github.com/colinsage/myts/services/meta/internal"
 	"github.com/influxdata/influxdb/services/meta"
+	"github.com/uber-go/zap"
 )
 
 // Retention policy settings.
@@ -44,7 +44,7 @@ type store struct {
 	dataChanged chan struct{}
 	path        string
 	opened      bool
-	logger      *log.Logger
+	logger      zap.Logger
 
 	raftAddr string
 	httpAddr string
@@ -67,19 +67,18 @@ func newStore(c *Config, httpAddr, raftAddr string) *store {
 		config:      c,
 		httpAddr:    httpAddr,
 		raftAddr:    raftAddr,
-	}
-	if c.LoggingEnabled {
-		s.logger = log.New(os.Stderr, "[metastore] ", log.LstdFlags)
-	} else {
-		s.logger = log.New(ioutil.Discard, "", 0)
+		logger:  zap.New(zap.NullEncoder()),
 	}
 
 	return &s
 }
 
+func (s *store) WithLogger(log zap.Logger) {
+	s.logger = log.With(zap.String("service", "meta_store"))
+}
 // open opens and initializes the raft store.
 func (s *store) open(raftln net.Listener) error {
-	s.logger.Printf("Using data dir: %v", s.path)
+	s.logger.Info(fmt.Sprintf("Using data dir: %v", s.path))
 
 	joinPeers, err := s.filterAddr(s.config.JoinPeers, s.httpAddr)
 	if err != nil {
@@ -98,16 +97,16 @@ func (s *store) open(raftln net.Listener) error {
 				peers = append(peers, s.raftAddr)
 			}
 
-			s.logger.Printf("len : %d, %d \r\n" ,len(s.config.JoinPeers),len(peers))
+			s.logger.Info(fmt.Sprintf("len : %d, %d \r\n" ,len(s.config.JoinPeers),len(peers)))
 			if len(s.config.JoinPeers)-len(peers) == 0 {
 				initializePeers = peers
 				break
 			}
 
 			if len(peers) > len(s.config.JoinPeers) {
-				s.logger.Printf("waiting for join peers to match config specified. found %v, config specified %v", peers, s.config.JoinPeers)
+				s.logger.Info(fmt.Sprintf("waiting for join peers to match config specified. found %v, config specified %v", peers, s.config.JoinPeers))
 			} else {
-				s.logger.Printf("Waiting for %d join peers.  Have %v. Asking nodes: %v", len(s.config.JoinPeers)-len(peers), peers, joinPeers)
+				s.logger.Info(fmt.Sprintf("Waiting for %d join peers.  Have %v. Asking nodes: %v", len(s.config.JoinPeers)-len(peers), peers, joinPeers))
 			}
 			time.Sleep(time.Second)
 		}
@@ -127,7 +126,7 @@ func (s *store) open(raftln net.Listener) error {
 		return fmt.Errorf("raft: %s", err)
 	}
 
-	s.logger.Printf("open raft done. %d", len(joinPeers) )
+	s.logger.Info(fmt.Sprintf("open raft done. %d", len(joinPeers)))
 	if len(joinPeers) > 0 {
 		c := NewClient()
 		c.SetMetaServers(joinPeers)
@@ -154,7 +153,7 @@ func (s *store) open(raftln net.Listener) error {
 	if err != nil {
 		return err
 	}
-	s.logger.Printf("peers count= %d", len(peers))
+	s.logger.Info(fmt.Sprintf("peers count= %d", len(peers)))
 	if len(peers) <= 1 {
 		// we have to loop here because if the hostname has changed
 		// raft will take a little bit to normalize so that this host
@@ -164,13 +163,13 @@ func (s *store) open(raftln net.Listener) error {
 			if err == nil {
 				break
 			}else{
-				s.logger.Printf(err.Error())
+				s.logger.Error(err.Error())
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
 
-	s.logger.Printf("open store done")
+	s.logger.Info("open store done")
 	return nil
 }
 
@@ -236,7 +235,8 @@ func (s *store) openRaft(initializePeers []string, raftln net.Listener) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rs := newRaftState(s.config, s.raftAddr)
-	rs.logger = s.logger
+	rs.WithLogger(s.logger)
+
 	rs.path = s.path
 
 	if err := rs.open(s, raftln, initializePeers); err != nil {
@@ -293,7 +293,7 @@ func (s *store) waitForLeader(timeout time.Duration) error {
 	// Continually check for leader until timeout.
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	s.logger.Printf("waitForLeader start")
+	s.logger.Info("waitForLeader start")
 	for {
 		select {
 		case <-s.closing:
@@ -304,7 +304,7 @@ func (s *store) waitForLeader(timeout time.Duration) error {
 			}
 		case <-ticker.C:
 			if s.leader() != "" {
-				s.logger.Printf("waitForLeader done")
+				s.logger.Info("waitForLeader done")
 				return nil
 			}
 		}
@@ -330,7 +330,7 @@ func (s *store) leader() string {
 		return ""
 	}
 
-	s.logger.Printf("query leader. " + string(s.raftState.raft.Leader()))
+	s.logger.Info("query leader. " + string(s.raftState.raft.Leader()))
 	return string(s.raftState.raft.Leader())
 }
 
@@ -456,7 +456,7 @@ func (s *store) setMetaNode(addr, raftAddr string) error {
 	if err != nil {
 		return err
 	}
-	s.logger.Printf("set meta node apply begin")
+	s.logger.Info("set meta node apply begin")
 	return s.apply(b)
 }
 

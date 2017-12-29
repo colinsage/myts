@@ -13,6 +13,7 @@ import (
 	"github.com/hashicorp/raft"
 	"github.com/hashicorp/raft-boltdb"
 	"strconv"
+	"github.com/uber-go/zap"
 )
 
 // Raft configuration.
@@ -34,7 +35,7 @@ type raftState struct {
 	raftStore *raftboltdb.BoltStore
 	ln        net.Listener
 	addr      string
-	logger    *log.Logger
+	logger    zap.Logger
 	path      string
 }
 
@@ -42,9 +43,13 @@ func newRaftState(c *Config, addr string) *raftState {
 	return &raftState{
 		config: c,
 		addr:   addr,
+		logger:  zap.New(zap.NullEncoder()),
 	}
 }
 
+func (r *raftState) WithLogger(log zap.Logger) {
+	r.logger = log.With(zap.String("service", "meta_state"))
+}
 func (r *raftState) open(s *store, ln net.Listener, initializePeers []string) error {
 	r.ln = ln
 	r.closing = make(chan struct{})
@@ -54,7 +59,7 @@ func (r *raftState) open(s *store, ln net.Listener, initializePeers []string) er
 	config.LogOutput = ioutil.Discard
 
 	if r.config.ClusterTracing {
-		config.Logger = r.logger
+		config.Logger = log.New(os.Stderr,"raft",log.LstdFlags)
 	}
 	//config.HeartbeatTimeout = time.Duration(r.config.HeartbeatTimeout)
 	//config.ElectionTimeout = time.Duration(r.config.ElectionTimeout)
@@ -68,9 +73,10 @@ func (r *raftState) open(s *store, ln net.Listener, initializePeers []string) er
 	//r.raftLayer = newRaftLayer(r.addr, r.ln)
 
 	// Create a transport layer
-	trans, error := raft.NewTCPTransport(r.config.BindAddress,nil, 3, 1*time.Second, os.Stdout)
+	trans, error := raft.NewTCPTransport(r.config.RaftBindAddress,nil, 3, 1*time.Second, os.Stdout)
 	if error != nil {
-		r.logger.Println(error.Error())
+		r.logger.Error(error.Error())
+		return error
 	}
 
 	r.transport = trans
@@ -78,23 +84,24 @@ func (r *raftState) open(s *store, ln net.Listener, initializePeers []string) er
 	// Create the log store and stable store.
 	store, err := raftboltdb.NewBoltStore(filepath.Join(r.path, "raft.db"))
 	if err != nil {
-		return fmt.Errorf("new bolt store: %s", err)
+		r.logger.Error(fmt.Sprintf("new bolt store: %s", err))
+		return err
 	}
 	r.raftStore = store
 
 	lastIndex,_ := store.LastIndex()
 	l := new(raft.Log)
 	store.GetLog(lastIndex, l)
-	log.Println("meta dir:" + strconv.FormatUint(lastIndex,10) + " "+ string(l.Data[:]))
+
+	r.logger.Info("meta dir:" + strconv.FormatUint(lastIndex,10) + " "+ string(l.Data[:]))
 	// Create the snapshot store.
 	snapshots, err := raft.NewFileSnapshotStore(r.path, raftSnapshotsRetained, os.Stderr)
 	if err != nil {
 		return fmt.Errorf("file snapshot store: %s", err)
 	}
 
-	config.LocalID = raft.ServerID(r.config.BindAddress)
+	config.LocalID = raft.ServerID(r.config.RaftBindAddress)
 	//config.StartAsLeader = true
-	config.Logger = r.logger
 
 	var configuration raft.Configuration
 
@@ -128,7 +135,7 @@ func (r *raftState) open(s *store, ln net.Listener, initializePeers []string) er
 func (r *raftState) logLeaderChanges() {
 	defer r.wg.Done()
 	// Logs our current state (Node at 1.2.3.4:8088 [Follower])
-	r.logger.Printf(r.raft.String())
+	r.logger.Info(r.raft.String())
 	for {
 		select {
 		case <-r.closing:
@@ -136,9 +143,9 @@ func (r *raftState) logLeaderChanges() {
 		case <-r.raft.LeaderCh():
 			peers, err := r.peers()
 			if err != nil {
-				r.logger.Printf("failed to lookup peers: %v", err)
+				r.logger.Error(fmt.Sprintf("failed to lookup peers: %v", err))
 			}
-			r.logger.Printf("%v. peers=%v", r.raft.String(), peers)
+			r.logger.Info(fmt.Sprintf("%v. peers=%v", r.raft.String(), peers))
 		}
 	}
 }

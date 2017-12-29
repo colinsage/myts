@@ -9,11 +9,9 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"math"
 	"math/rand"
 	"net/http"
-	"os"
 	"sort"
 	"sync"
 	"time"
@@ -26,6 +24,7 @@ import (
 	"github.com/colinsage/myts/services/meta/internal"
 	"github.com/influxdata/influxdb/services/meta"
 	"github.com/influxdata/influxql"
+	"github.com/uber-go/zap"
 )
 
 const (
@@ -53,7 +52,7 @@ var (
 // a meta service cluster.
 type Client struct {
 	tls    bool
-	logger *log.Logger
+	logger zap.Logger
 	nodeID uint64
 
 	mu          sync.RWMutex
@@ -76,8 +75,8 @@ type authUser struct {
 func NewClient() *Client {
 	return &Client{
 		cacheData: &Data{},
-		logger:    log.New(os.Stderr, "[metaclient] ", log.LstdFlags),
 		authCache: make(map[string]authUser, 0),
+		logger:              zap.New(zap.NullEncoder()),
 	}
 }
 
@@ -109,6 +108,13 @@ func (c *Client) Close() error {
 	}
 
 	return nil
+}
+
+// WithLogger sets the logger for the client.
+func (c *Client) WithLogger(log zap.Logger) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.logger = log.With(zap.String("service", "meta_client"))
 }
 
 // GetNodeID returns the cluster's node ID.
@@ -258,7 +264,7 @@ func (c *Client) CreateDataNode(httpAddr, tcpAddr string) (*meta.NodeInfo, error
 		return nil, err
 	}
 
-	c.logger.Println("create data node success. ")
+	c.logger.Info("create data node success. ")
 	n, err := c.DataNodeByTCPHost(tcpAddr)
 	if err != nil {
 		return nil, err
@@ -286,8 +292,8 @@ func (c *Client) DataNodeByTCPHost(tcpAddr string) (*meta.NodeInfo, error) {
 	nodes, _ := c.DataNodes()
 
 	b,_ := json.Marshal(nodes)
-	log.Println(string(b[:]))
-	log.Println(fmt.Sprintf("len of data nodes : %d,[%s, %s]", len(nodes), tcpAddr, nodes[0].TCPHost))
+	c.logger.Info(string(b[:]))
+	c.logger.Info(fmt.Sprintf("len of data nodes : %d,[%s, %s]", len(nodes), tcpAddr, nodes[0].TCPHost))
 	for _, n := range nodes {
 		if n.TCPHost == tcpAddr {
 			return &n, nil
@@ -828,9 +834,9 @@ func (c *Client) PrecreateShardGroups(from, to time.Time) error {
 				// Create successive shard group.
 				nextShardGroupTime := g.EndTime.Add(1 * time.Nanosecond)
 				if newGroup, err := c.CreateShardGroup(di.Name, rp.Name, nextShardGroupTime); err != nil {
-					c.logger.Printf("failed to precreate successive shard group for group %d: %s", g.ID, err.Error())
+					c.logger.Info(fmt.Sprintf("failed to precreate successive shard group for group %d: %s", g.ID, err.Error()))
 				} else {
-					c.logger.Printf("new shard group %d successfully precreated for database %s, retention policy %s", newGroup.ID, di.Name, rp.Name)
+					c.logger.Info(fmt.Sprintf("new shard group %d successfully precreated for database %s, retention policy %s", newGroup.ID, di.Name, rp.Name))
 				}
 			}
 		}
@@ -899,7 +905,7 @@ func (c *Client) JoinMetaServer(httpAddr, tcpAddr string) (*meta.NodeInfo, error
 		//log.Println("in cluster join begin." + url + " " + string(b[:]))
 		resp, err := http.Post(url, "application/json", bytes.NewBuffer(b))
 		if err != nil {
-			log.Println("in clinet error. " + err.Error())
+			c.logger.Info("in clinet error. " + err.Error())
 			currentServer++
 			continue
 		}
@@ -918,7 +924,7 @@ func (c *Client) JoinMetaServer(httpAddr, tcpAddr string) (*meta.NodeInfo, error
 		// they think is the leader.
 		if resp.StatusCode == http.StatusTemporaryRedirect {
 			redirectServer = resp.Header.Get("Location")
-			log.Println("in clinet redirect. ")
+			c.logger.Info("in clinet redirect. ")
 			continue
 		}
 
@@ -1019,12 +1025,6 @@ func (c *Client) MarshalBinary() ([]byte, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.cacheData.MarshalBinary()
-}
-
-func (c *Client) SetLogger(l *log.Logger) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.logger = l
 }
 
 func (c *Client) index() uint64 {
@@ -1271,7 +1271,7 @@ func (c *Client) retryUntilSnapshot(idx uint64) *Data {
 			return data
 		}
 
-		c.logger.Printf("failure getting snapshot from %s: %s", server, err.Error())
+		c.logger.Info(fmt.Sprintf("failure getting snapshot from %s: %s", server, err.Error()))
 		time.Sleep(errSleep)
 
 		currentServer++

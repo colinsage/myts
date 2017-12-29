@@ -14,7 +14,6 @@ import (
 
 	"github.com/colinsage/myts/cmd/node/run"
 	"path/filepath"
-	"log"
 )
 
 var (
@@ -37,11 +36,13 @@ func init() {
 }
 
 func main() {
+	// debug current path
 	dir, err := filepath.Abs(filepath.Dir("."))
 	if err != nil {
-		log.Fatal(err)
+		fmt.Fprintln(os.Stderr, err)
+	}else {
+		fmt.Fprintln(os.Stderr, dir)
 	}
-	fmt.Println(dir)
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -87,6 +88,7 @@ func (m *Main) Run(args ...string) error {
 		cmd.Version = version
 		cmd.Commit = commit
 		cmd.Branch = branch
+		cmd.Logger = m.Logger
 
 		if err := cmd.Run(args...); err != nil {
 			return fmt.Errorf("run: %s", err)
@@ -118,6 +120,10 @@ func (m *Main) Run(args ...string) error {
 		}
 
 		// goodbye.
+	case "version":
+		if err := NewVersionCommand().Run(args...); err != nil {
+			return fmt.Errorf("version: %s", err)
+		}
 	default:
 		return fmt.Errorf(`unknown command "%s"`+"\n"+`Run 'influxd help' for usage`+"\n\n", name)
 	}
@@ -180,9 +186,8 @@ func (cmd *VersionCommand) Run(args ...string) error {
 	return nil
 }
 
-var versionUsage = `
-usage: version
+var versionUsage = `Displays the InfluxDB version, build branch and git commit hash.
 
-	version displays the InfluxDB version, build branch and git commit hash
+Usage: influxd version
 `
 

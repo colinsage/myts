@@ -25,6 +25,10 @@ import (
 
 
 	"github.com/influxdata/influxdb/query"
+	"github.com/uber-go/zap"
+	"os"
+	"io"
+	"strconv"
 )
 
 
@@ -50,6 +54,8 @@ type Server struct {
 
 	BindAddress string
 	Listener    net.Listener
+
+	Logger zap.Logger
 
 	MetaClient  *thisMeta.Client
 	MetaService *thisMeta.Service
@@ -104,6 +110,10 @@ func NewServer(c *Config, buildInfo *BuildInfo) (*Server, error) {
 		buildInfo: *buildInfo,
 		err:       make(chan error),
 		closing:   make(chan struct{}),
+		Logger: zap.New(
+			zap.NewTextEncoder(),
+			zap.Output(os.Stderr),
+		),
 
 		MetaClient: thisMeta.NewClient(),
 
@@ -121,13 +131,12 @@ func NewServer(c *Config, buildInfo *BuildInfo) (*Server, error) {
 
 
 	s.Node = &meta.NodeInfo{}
-	if c.MetaEnabled{
+	if c.Global.MetaEnabled{
 		s.MetaService = thisMeta.NewService(c.Meta)
 		s.MetaService.Version = s.buildInfo.Version
 	}
 
-
-	if c.DataEnabled {
+	if c.Global.DataEnabled {
 		s.TSDBStore = tsdb.NewStore(c.Data.Dir)
 		s.TSDBStore.EngineOptions.Config = c.Data
 
@@ -142,7 +151,7 @@ func NewServer(c *Config, buildInfo *BuildInfo) (*Server, error) {
 
 		// Initialize points writer.
 		s.PointsWriter = data.NewPointsWriter()
-		s.PointsWriter.WriteTimeout = time.Duration(c.Cluster.WriteTimeout)
+		s.PointsWriter.WriteTimeout = time.Duration(c.DataExt.WriteTimeout)
 		s.PointsWriter.TSDBStore = s.TSDBStore
 		s.PointsWriter.Node = s.Node
 		s.PointsWriter.ShardWriter = s.ShardWriter
@@ -160,18 +169,18 @@ func NewServer(c *Config, buildInfo *BuildInfo) (*Server, error) {
 			},
 			Monitor:           s.Monitor,
 			PointsWriter:      s.PointsWriter,
-			MaxSelectPointN:   c.Cluster.MaxSelectPointN,
-			MaxSelectSeriesN:  c.Cluster.MaxSelectSeriesN,
-			MaxSelectBucketsN: c.Cluster.MaxSelectBucketsN,
+			MaxSelectPointN:   c.DataExt.MaxSelectPointN,
+			MaxSelectSeriesN:  c.DataExt.MaxSelectSeriesN,
+			MaxSelectBucketsN: c.DataExt.MaxSelectBucketsN,
 		}
-		s.QueryExecutor.TaskManager.QueryTimeout = time.Duration(c.Cluster.QueryTimeout)
-		s.QueryExecutor.TaskManager.LogQueriesAfter = time.Duration(c.Cluster.LogQueriesAfter)
-		s.QueryExecutor.TaskManager.MaxConcurrentQueries = c.Cluster.MaxConcurrentQueries
+		s.QueryExecutor.TaskManager.QueryTimeout = time.Duration(c.DataExt.QueryTimeout)
+		s.QueryExecutor.TaskManager.LogQueriesAfter = time.Duration(c.DataExt.LogQueriesAfter)
+		s.QueryExecutor.TaskManager.MaxConcurrentQueries = c.DataExt.MaxConcurrentQueries
 
-		s.Cluster = data.NewService(s.config.Cluster)
+		s.Cluster = data.NewService(s.config.DataExt)
 		s.Cluster.TSDBStore = s.TSDBStore
 		s.Cluster.MetaClient = s.MetaClient
-		s.Cluster.Config = s.config.Cluster
+		s.Cluster.Config = s.config.DataExt
 
 
 		// Initialize the monitor
@@ -195,10 +204,12 @@ func (s *Server) Open() error {
 	//startProfile(s.CPUProfile, s.MemProfile)
 
 	// Open shared TCP connection.
-	if s.config.DataEnabled {
-		tcpAddr := s.config.Hostname + s.config.BindAddress
+	s.Logger.Info("bind_addr:"+ strconv.Itoa(len(s.config.BindAddress)))
+	//TODO
+	if s.config.Global.DataEnabled  && len(s.config.BindAddress) != 0{
+		tcpAddr := s.config.Global.Hostname + s.config.BindAddress
 		ln, err := net.Listen("tcp", tcpAddr)
-		log.Println("listen tcp at : " +  tcpAddr)
+		s.Logger.Info("listen tcp at : " +  tcpAddr)
 
 		if err != nil {
 			return fmt.Errorf("listen: %s", err)
@@ -210,12 +221,15 @@ func (s *Server) Open() error {
 		go mux.Serve(ln)
 
 		s.Cluster.Listener = mux.Listen(data.MuxHeader)
-		s.config.Cluster.BindAddress = tcpAddr
+		s.config.DataExt.BindAddress = tcpAddr
 	}
 
 	if s.MetaService != nil {
 		//s.MetaService.RaftListener = mux.Listen(thisMeta.MuxHeader)
 		// Open meta service.
+		if s.config.Meta.LoggingEnabled {
+			s.MetaService.WithLogger(s.Logger)
+		}
 		if err := s.MetaService.Open(); err != nil {
 			return fmt.Errorf("open meta service: %s", err)
 		}
@@ -228,18 +242,36 @@ func (s *Server) Open() error {
 		return err
 	}
 
-	if s.config.DataEnabled {
+	// Configure logging for all services and clients.
+	if s.config.Meta.LoggingEnabled {
+		s.MetaClient.WithLogger(s.Logger)
+	}
+
+	if s.config.Global.DataEnabled {
+
+		s.TSDBStore.WithLogger(s.Logger)
+		if s.config.Data.QueryLogEnabled {
+			s.QueryExecutor.WithLogger(s.Logger)
+		}
+
+		s.PointsWriter.WithLogger(s.Logger)
+		s.ShardWriter.WithLogger(s.Logger)
 
 		// Append services.
 		//s.appendMonitorService()
 		//s.appendPrecreatorService(s.config.Precreator)
 
-		s.config.HTTPD.BindAddress = s.config.Hostname + s.config.HTTPD.BindAddress
+		s.config.HTTPD.BindAddress = s.config.Global.Hostname + s.config.HTTPD.BindAddress
 		s.appendHTTPDService(s.config.HTTPD)
 		s.appendRetentionPolicyService(s.config.Retention)
 
 		s.PointsWriter.MetaClient = s.MetaClient
 		//s.Monitor.MetaClient = s.MetaClient
+
+		for _, svc := range s.Services {
+			svc.WithLogger(s.Logger)
+		}
+
 
 		// Open TSDB store.
 		if err := s.TSDBStore.Open(); err != nil {
@@ -353,13 +385,13 @@ func (s *Server) initializeMetaClient() error {
 		return err
 	}
 
-	if s.config.DataEnabled{
+	if s.config.Global.DataEnabled{
 		//if _, err := s.MetaClient.DataNode(s.Node.ID); err == nil {
 		//	return nil
 		//}
 
-		httpAddr := s.config.Hostname+s.config.HTTPD.BindAddress
-		tcpAddr := s.config.Hostname+s.config.BindAddress
+		httpAddr := s.config.Global.Hostname + s.config.HTTPD.BindAddress
+		tcpAddr := s.config.Global.Hostname + s.config.BindAddress
 		node, err := s.MetaClient.CreateDataNode(httpAddr, tcpAddr)
 		for err != nil {
 			log.Printf("Unable to create data node. retry in 1s: %s", err.Error())
@@ -387,7 +419,7 @@ func (s *Server) TCPAddr() string {
 }
 
 func (s *Server) remoteAddr(addr string) string {
-	hostname := s.config.Hostname
+	hostname := s.config.Global.Hostname
 	if hostname == "" {
 		hostname = thisMeta.DefaultHostname
 	}
@@ -405,6 +437,7 @@ func (s *Server) MetaServers() []string {
 
 // Service represents a service attached to the server.
 type Service interface {
+	WithLogger(log zap.Logger)
 	Open() error
 	Close() error
 }
@@ -420,4 +453,10 @@ type monitorPointsWriter data.PointsWriter
 
 func (pw *monitorPointsWriter) WritePoints(database, retentionPolicy string, points models.Points) error {
 	return (*data.PointsWriter)(pw).WritePointsPrivileged(database, retentionPolicy, models.ConsistencyLevelAny, points)
+}
+
+// SetLogOutput sets the logger used for all messages. It must not be called
+// after the Open method has been called.
+func (s *Server) SetLogOutput(w io.Writer) {
+	s.Logger = zap.New(zap.NewTextEncoder(), zap.Output(zap.AddSync(w)))
 }

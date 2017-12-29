@@ -52,7 +52,7 @@ type Config struct {
 	RemoteHostname string `toml:"-"`
 
 	// this is deprecated. Should use the address from run/config.go
-	BindAddress string `toml:"bind-address"`
+	RaftBindAddress string `toml:"raft-bind-address"`
 
 	// HTTPBindAddress is the bind address for the metaservice HTTP API
 	HTTPBindAddress  string `toml:"http-bind-address"`
@@ -78,7 +78,7 @@ type Config struct {
 func NewConfig() *Config {
 	return &Config{
 		Enabled:              true, // enabled by default
-		BindAddress:          DefaultRaftBindAddress,
+		RaftBindAddress:          DefaultRaftBindAddress,
 		HTTPBindAddress:      DefaultHTTPBindAddress,
 		RetentionAutoCreate:  true,
 		ElectionTimeout:      toml.Duration(DefaultElectionTimeout),

@@ -115,9 +115,9 @@ func (fsm *storeFSM) applyRemovePeerCommand(cmd *internal.Command) interface{} {
 	// Only do this if you are the leader
 	if fsm.raftState.isLeader() {
 		//Remove that node from the peer
-		fsm.logger.Printf("removing peer: %s", addr)
+		fsm.logger.Info(fmt.Sprintf("removing peer: %s", addr))
 		if err := fsm.raftState.removePeer(addr); err != nil {
-			fsm.logger.Printf("error removing peer: %s", err)
+			fsm.logger.Info(fmt.Sprintf("error removing peer: %s", err))
 		}
 	}
 

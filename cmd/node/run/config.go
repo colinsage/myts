@@ -24,36 +24,46 @@ import (
 
 // Config represents the configuration format for the influxd binary.
 type Config struct {
-	Meta *meta.Config    `toml:"meta"`
-	Data tsdb.Config     `toml:"data"`
-	Cluster *data.Config `toml:"cluster"`
+	// Hostname is the hostname portion to use when registering local
+	// addresses.  This hostname must be resolvable from other nodes.
+
+	Global  *Global `toml:"global"`
+
+	Meta    *meta.Config `toml:"meta"`
+	Data    tsdb.Config  `toml:"data"`
+	DataExt *data.Config `toml:"data-ext"`
 
 	Retention   retention.Config   `toml:"retention"`
 	Precreator  precreator.Config  `toml:"shard-precreation"`
 	Monitor        monitor.Config    `toml:"monitor"`
 
-	MetaEnabled bool  `toml:"meta-enable"`
-	DataEnabled bool  `toml:"data-enable"`
+
 
 	HTTPD          httpd.Config      `toml:"http"`
 
 
-	// BindAddress is the address that all TCP services use (Raft, Snapshot, Cluster, etc.)
-	BindAddress string `toml:"bind-address"`
+	// BindAddress is the address that all TCP services use (Raft, Snapshot, DataExt, etc.)
+	//BindAddress string `toml:"bind-address"`
+	BindAddress  string  `toml:"-"`
 
-	// Hostname is the hostname portion to use when registering local
-	// addresses.  This hostname must be resolvable from other nodes.
+
+}
+
+type Global struct {
 	Hostname string `toml:"hostname"`
-
 	Join string `toml:"join"`
+
+	MetaEnabled bool  `toml:"meta-enable"`
+	DataEnabled bool  `toml:"data-enable"`
 }
 
 // NewConfig returns an instance of Config with reasonable defaults.
 func NewConfig() *Config {
 	c := &Config{}
+	c.Global = &Global{}
 	c.Meta = meta.NewConfig()
 	c.Data = tsdb.NewConfig()
-	c.Cluster = data.NewConfig()
+	c.DataExt = data.NewConfig()
 
 	c.Monitor = monitor.NewConfig()
 	c.HTTPD = httpd.NewConfig()
@@ -66,13 +76,13 @@ func NewConfig() *Config {
 
 // Validate returns an error if the config is invalid.
 func (c *Config) Validate() error {
-	if c.MetaEnabled {
+	if c.Global.MetaEnabled {
 		if err := c.Meta.Validate(); err != nil {
 			return err
 		}
 	}
 
-	if c.DataEnabled {
+	if c.Global.DataEnabled {
 		if err := c.Data.Validate(); err != nil {
 			return err
 		}
@@ -120,7 +130,7 @@ func trimBOM(f []byte) []byte {
 // FromToml loads the config from TOML.
 func (c *Config) FromToml(input string) error {
 	// Replace deprecated [cluster] with [coordinator]
-	re := regexp.MustCompile(`(?m)^\s*\[cluster2\]`)
+	re := regexp.MustCompile(`(?m)^\s*\[cluster\]`)
 	input = re.ReplaceAllStringFunc(input, func(in string) string {
 		in = strings.TrimSpace(in)
 		out := "[coordinator]"

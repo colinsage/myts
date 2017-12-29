@@ -104,7 +104,7 @@ func (s *Service) Open() error {
 	//}
 	//s.Listener = listener
 
-	fmt.Println("Starting cluster service")
+	s.Logger.Info("Starting cluster service")
 	// Begin serving conections.
 	s.wg.Add(1)
 	go s.serve()
@@ -114,7 +114,7 @@ func (s *Service) Open() error {
 
 // SetLogger sets the internal logger to the logger passed in.
 func (s *Service) WithLogger(log zap.Logger) {
-	s.Logger = log.With(zap.String("service", "write"))
+	s.Logger = log.With(zap.String("service", "data"))
 }
 
 // serve accepts connections from the listener and handles them.
@@ -129,6 +129,13 @@ func (s *Service) serve() {
 		default:
 		}
 
+		if s.Listener == nil {
+			ln, err := net.Listen("tcp", s.Config.BindAddress)
+			if err!= nil {
+				s.Logger.Error(err.Error())
+			}
+			s.Listener = ln
+		}
 		// Accept the next connection.
 		conn, err := s.Listener.Accept()
 		if err != nil {

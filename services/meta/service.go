@@ -1,16 +1,14 @@
 package meta
 
 import (
-	"log"
 	"net"
-	"os"
-	"io/ioutil"
 	"crypto/tls"
 	"time"
 	"fmt"
 	"net/http"
 	"strings"
 	"github.com/influxdata/influxdb"
+	"github.com/uber-go/zap"
 )
 
 const (
@@ -30,7 +28,7 @@ type Service struct {
 	https    bool
 	cert     string
 	err      chan error
-	Logger   *log.Logger
+	Logger   zap.Logger
 	store    *store
 
 	Node *influxdb.Node
@@ -41,23 +39,23 @@ func NewService(c *Config) *Service {
 	s := &Service{
 		config:   c,
 		httpAddr: c.HTTPBindAddress,
-		raftAddr: c.BindAddress,
+		raftAddr: c.RaftBindAddress,
 		https:    c.HTTPSEnabled,
 		cert:     c.HTTPSCertificate,
 		err:      make(chan error),
-	}
-	if c.LoggingEnabled {
-		s.Logger = log.New(os.Stderr, "[meta] ", log.LstdFlags)
-	} else {
-		s.Logger = log.New(ioutil.Discard, "", 0)
+		Logger:  zap.New(zap.NullEncoder()),
 	}
 
 	return s
 }
 
+func (s *Service) WithLogger(log zap.Logger) {
+	s.Logger = log.With(zap.String("service", "meta_server"))
+}
+
 // Open starts the service
 func (s *Service) Open() error {
-	s.Logger.Println("Starting meta service")
+	s.Logger.Info("Starting meta service")
 
 	//if s.RaftListener == nil {
 	//	panic("no raft listener set")
@@ -77,7 +75,7 @@ func (s *Service) Open() error {
 			return err
 		}
 
-		s.Logger.Println("Listening on HTTPS:", listener.Addr().String())
+		s.Logger.Info(fmt.Sprintf("Listening on HTTPS:", listener.Addr().String()))
 		s.ln = listener
 	} else {
 		listener, err := net.Listen("tcp", s.httpAddr)
@@ -85,7 +83,7 @@ func (s *Service) Open() error {
 			return err
 		}
 
-		s.Logger.Println("Listening on HTTP:", listener.Addr().String())
+		s.Logger.Info(fmt.Sprintf("Listening on HTTP:", listener.Addr().String()))
 		s.ln = listener
 	}
 
@@ -116,20 +114,21 @@ func (s *Service) Open() error {
 	// Open the store.  The addresses passed in are remotely accessible.
 	s.store = newStore(s.config, s.remoteAddr(s.httpAddr), s.remoteAddr(s.raftAddr))
 	s.store.node = s.Node
+	s.store.WithLogger(s.Logger)
 
 	handler := newHandler(s.config, s)
-	handler.logger = s.Logger
+	handler.WithLogger(s.Logger)
 	handler.store = s.store
 	s.handler = handler
 
 	// Begin listening for requests in a separate goroutine.
 	go s.serve()
-	s.Logger.Println("begin to open store.")
+	s.Logger.Info("begin to open store.")
 	if err := s.store.open(s.RaftListener); err != nil {
 		return err
 	}
 
-	s.Logger.Println("start meta service done.")
+	s.Logger.Info("start meta service done.")
 
 	return nil
 }
@@ -188,10 +187,6 @@ func (s *Service) RaftAddr() string {
 // Err returns a channel for fatal errors that occur on the listener.
 func (s *Service) Err() <-chan error { return s.err }
 
-// SetLogger sets the internal logger to the logger passed in.
-func (s *Service) SetLogger(l *log.Logger) {
-	s.Logger = l
-}
 
 func autoAssignPort(addr string) bool {
 	_, p, _ := net.SplitHostPort(addr)

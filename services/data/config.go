@@ -51,7 +51,7 @@ type Config struct {
 	MaxSelectSeriesN     int           `toml:"max-select-series"`
 	MaxSelectBucketsN    int           `toml:"max-select-buckets"`
 
-	BindAddress  string
+	BindAddress  string `toml:"bind-address"`
 
 }
 

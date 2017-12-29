@@ -68,7 +68,8 @@ func (cmd *Command) Run(args ...string) error {
 	}
 
 	// Print sweet InfluxDB logo.
-	fmt.Print(logo)
+	//fmt.Print(logo)
+	cmd.Logger.Info(logo)
 
 	// Set parallelism.
 	runtime.GOMAXPROCS(runtime.NumCPU())
@@ -94,8 +95,8 @@ func (cmd *Command) Run(args ...string) error {
 
 
 	// Propogate the top-level join options down to the meta config
-	if config.Join != "" {
-		config.Meta.JoinPeers = strings.Split(config.Join, ",")
+	if config.Global.Join != "" {
+		config.Meta.JoinPeers = strings.Split(config.Global.Join, ",")
 	}
 
 	// Command-line flags for -join and -hostname override the config
@@ -105,11 +106,11 @@ func (cmd *Command) Run(args ...string) error {
 	}
 
 	if options.Hostname != "" {
-		config.Hostname = options.Hostname
+		config.Global.Hostname = options.Hostname
 	}
 
 	// Propogate the top-level hostname down to dependendent configs
-	config.Meta.RemoteHostname = config.Hostname
+	config.Meta.RemoteHostname = config.Global.Hostname
 
 	// Validate the configuration.
 	if err := config.Validate(); err != nil {
@@ -127,6 +128,8 @@ func (cmd *Command) Run(args ...string) error {
 	if err != nil {
 		return fmt.Errorf("create server: %s", err)
 	}
+	s.Logger = cmd.Logger
+
 
 	if err := s.Open(); err != nil {
 		return fmt.Errorf("open server: %s", err)

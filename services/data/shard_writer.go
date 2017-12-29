@@ -7,6 +7,7 @@ import (
 
 	"github.com/influxdata/influxdb/models"
 	"github.com/influxdata/influxdb/services/meta"
+	"github.com/uber-go/zap"
 )
 
 // ShardWriter writes a set of points to a shard.
@@ -19,6 +20,8 @@ type ShardWriter struct {
 		DataNode(id uint64) (ni *meta.NodeInfo, err error)
 		ShardOwner(shardID uint64) (database, policy string, sgi *meta.ShardGroupInfo)
 	}
+
+	Logger       zap.Logger
 }
 
 // NewShardWriter returns a new instance of ShardWriter.
@@ -27,6 +30,7 @@ func NewShardWriter(timeout time.Duration, maxConnections int) *ShardWriter {
 		pool:           newClientPool(),
 		timeout:        timeout,
 		maxConnections: maxConnections,
+		Logger:       zap.New(zap.NullEncoder()),
 	}
 }
 
@@ -64,7 +68,7 @@ func (w *ShardWriter) WriteShard(shardID, ownerID uint64, points []models.Point)
 	// Marshal into protocol buffers.
 	buf, err := request.MarshalBinary()
 
-	fmt.Println("write req marshal sucess")
+	w.Logger.Info("write req marshal sucess")
 	if err != nil {
 		return err
 	}
@@ -76,14 +80,14 @@ func (w *ShardWriter) WriteShard(shardID, ownerID uint64, points []models.Point)
 		return err
 	}
 
-	fmt.Println("write req send sucess")
+	w.Logger.Info("write req send sucess")
 	// Read the response.
 	conn.SetReadDeadline(time.Now().Add(time.Second*3))
 	_, buf, err = ReadTLV(conn)
 	if err!=nil {
-		fmt.Println("read write resp failed."+ err.Error())
+		w.Logger.Info("read write resp failed."+ err.Error())
 	}else {
-		fmt.Println("read write resp sucess .")
+		w.Logger.Info("read write resp sucess .")
 	}
 
 	if err != nil {
@@ -96,7 +100,7 @@ func (w *ShardWriter) WriteShard(shardID, ownerID uint64, points []models.Point)
 	if err := response.UnmarshalBinary(buf); err != nil {
 		return err
 	}
-	fmt.Println("write resp from remote unmarshal sucess")
+	w.Logger.Info("write resp from remote unmarshal sucess")
 	if response.Code() != 0 {
 		return fmt.Errorf("error code %d: %s", response.Code(), response.Message())
 	}
@@ -128,6 +132,11 @@ func (w *ShardWriter) Close() error {
 	w.pool.close()
 	w.pool = nil
 	return nil
+}
+
+// WithLogger sets the Logger on w.
+func (w *ShardWriter) WithLogger(log zap.Logger) {
+	w.Logger = log.With(zap.String("service", "write_shard"))
 }
 
 const (
