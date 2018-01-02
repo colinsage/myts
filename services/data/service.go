@@ -182,7 +182,7 @@ func (s *Service) handleConn(conn net.Conn) {
 		conn.Close()
 	}()
 
-	fmt.Printf("accept remote connection from %v\n", conn.RemoteAddr())
+	s.Logger.Debug(fmt.Sprintf("accept remote connection from %v\n", conn.RemoteAddr()))
 	//s.Logger.Info(fmt.Sprintf("accept remote connection from %v\n", conn.RemoteAddr()))
 	defer func() {
 		s.Logger.Info(fmt.Sprintf("close remote connection from %v\n", conn.RemoteAddr()))
@@ -203,28 +203,28 @@ func (s *Service) handleConn(conn net.Conn) {
 		case writeShardRequestMessage:
 			buf, err := ReadLV(conn)
 			if err != nil {
-				fmt.Println("unable to read length-value: %s", err)
+				s.Logger.Error(fmt.Sprintf("unable to read length-value: %s", err))
 				//s.Logger.Info(fmt.Sprint("unable to read length-value: %s", err))
 				return
 			}
 
-			fmt.Println("read req sucess")
+			s.Logger.Debug("read req sucess")
 			err = s.processWriteShardRequest(buf)
 			if err != nil {
-				s.Logger.Info(fmt.Sprint("process write shard error: %s", err))
+				s.Logger.Error(fmt.Sprint("process write shard error: %s", err))
 			}
-			fmt.Println("write remote points sucess")
+			s.Logger.Debug("write remote points sucess")
 			s.writeShardResponse(conn, err)
 		case executeStatementRequestMessage:
 			buf, err := ReadLV(conn)
 			if err != nil {
-				s.Logger.Info(fmt.Sprint("unable to read length-value: %s", err))
+				s.Logger.Error(fmt.Sprint("unable to read length-value: %s", err))
 				return
 			}
 
 			err = s.processExecuteStatementRequest(buf)
 			if err != nil {
-				s.Logger.Info(fmt.Sprint("process execute statement error: %s", err))
+				s.Logger.Error(fmt.Sprint("process execute statement error: %s", err))
 			}
 			s.writeShardResponse(conn, err)
 		case createIteratorRequestMessage:
@@ -282,7 +282,7 @@ func (s *Service) processWriteShardRequest(buf []byte) error {
 	if err := req.UnmarshalBinary(buf); err != nil {
 		return err
 	}
-	fmt.Println("unmarshal sucess.")
+	s.Logger.Debug("unmarshal sucess.")
 	points := req.Points()
 	err := s.TSDBStore.WriteToShard(req.ShardID(), points)
 
@@ -337,7 +337,7 @@ func (s *Service) writeShardResponse(w io.Writer, e error) {
 	if err := WriteTLV(w, writeShardResponseMessage, buf); err != nil {
 		s.Logger.Info(fmt.Sprintf("write shard response error: %s", err))
 	}
-	fmt.Println("write to write points resp sucess.")
+	s.Logger.Debug("write to write points resp sucess.")
 }
 
 func (s *Service) processCreateIteratorRequest(conn net.Conn) {

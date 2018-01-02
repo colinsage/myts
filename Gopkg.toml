@@ -104,6 +104,7 @@
 [[constraint]]
   name = "github.com/uber-go/zap"
   revision = "fbae0281ffd546fa6d1959fec6075ac5da7fb577"
+  #version = "v1.7.1"
 
 [[constraint]]
   name = "github.com/xlab/treeprint"
@@ -128,3 +129,8 @@
 [[constraint]]
   name = "github.com/hashicorp/raft-boltdb"
   revision = "6e5ba93211eaf8d9a2ad7e41ffad8c6f160f9fe3"
+
+[[constraint]]
+  name = "gopkg.in/natefinch/lumberjack.v2"
+  version = "v2.1"
+

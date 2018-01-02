@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"time"
-	"log"
 	"github.com/influxdata/influxdb/coordinator"
 	"github.com/influxdata/influxdb/tsdb"
 	"github.com/influxdata/influxdb/monitor"
@@ -29,6 +28,7 @@ import (
 	"os"
 	"io"
 	"strconv"
+	"github.com/colinsage/myts/services/hh"
 )
 
 
@@ -156,22 +156,31 @@ func NewServer(c *Config, buildInfo *BuildInfo) (*Server, error) {
 		s.PointsWriter.Node = s.Node
 		s.PointsWriter.ShardWriter = s.ShardWriter
 
+		metaExecutor := data.NewMetaExecutor()
+		metaExecutor.MetaClient = s.MetaClient
+		metaExecutor.Node = s.Node
+
 		s.QueryExecutor = query.NewQueryExecutor()
-		s.QueryExecutor.StatementExecutor = &coordinator.StatementExecutor{
-			MetaClient:  s.MetaClient,
-			TaskManager: s.QueryExecutor.TaskManager,
-			TSDBStore:   coordinator.LocalTSDBStore{Store: s.TSDBStore},
-			ShardMapper: &data.DistributedShardMapper{
-				MetaClient: s.MetaClient,
-				TSDBStore:  coordinator.LocalTSDBStore{Store: s.TSDBStore},
-				Node: s.Node,
-				Timeout: data.DefaultWriteTimeout, //TODO
+		s.QueryExecutor.StatementExecutor = &data.StatementExecutor{
+			StatementExecutor: coordinator.StatementExecutor{
+				MetaClient:  s.MetaClient,
+				TaskManager: s.QueryExecutor.TaskManager,
+				TSDBStore:   coordinator.LocalTSDBStore{Store: s.TSDBStore},
+				ShardMapper: &data.DistributedShardMapper{
+					MetaClient: s.MetaClient,
+					TSDBStore:  coordinator.LocalTSDBStore{Store: s.TSDBStore},
+					Node: s.Node,
+					Timeout: data.DefaultWriteTimeout, //TODO
+					Logger: s.Logger,
+				},
+				Monitor:           s.Monitor,
+				PointsWriter:      s.PointsWriter,
+				MaxSelectPointN:   c.DataExt.MaxSelectPointN,
+				MaxSelectSeriesN:  c.DataExt.MaxSelectSeriesN,
+				MaxSelectBucketsN: c.DataExt.MaxSelectBucketsN,
 			},
-			Monitor:           s.Monitor,
-			PointsWriter:      s.PointsWriter,
-			MaxSelectPointN:   c.DataExt.MaxSelectPointN,
-			MaxSelectSeriesN:  c.DataExt.MaxSelectSeriesN,
-			MaxSelectBucketsN: c.DataExt.MaxSelectBucketsN,
+			MetaExecutor: metaExecutor,
+
 		}
 		s.QueryExecutor.TaskManager.QueryTimeout = time.Duration(c.DataExt.QueryTimeout)
 		s.QueryExecutor.TaskManager.LogQueriesAfter = time.Duration(c.DataExt.LogQueriesAfter)
@@ -264,6 +273,7 @@ func (s *Server) Open() error {
 		s.config.HTTPD.BindAddress = s.config.Global.Hostname + s.config.HTTPD.BindAddress
 		s.appendHTTPDService(s.config.HTTPD)
 		s.appendRetentionPolicyService(s.config.Retention)
+		s.appendHintedHandoffService(s.config.HH)
 
 		s.PointsWriter.MetaClient = s.MetaClient
 		//s.Monitor.MetaClient = s.MetaClient
@@ -305,6 +315,7 @@ func (s *Server) appendMonitorService() {
 
 func (s *Server) appendRetentionPolicyService(c retention.Config) {
 	if !c.Enabled {
+		s.Logger.Info("retention policy is disable.")
 		return
 	}
 	srv := retention.NewService(c)
@@ -315,6 +326,7 @@ func (s *Server) appendRetentionPolicyService(c retention.Config) {
 
 func (s *Server) appendHTTPDService(c httpd.Config) {
 	if !c.Enabled {
+		s.Logger.Info("http api is disable.")
 		return
 	}
 	srv := httpd.NewService(c)
@@ -329,6 +341,16 @@ func (s *Server) appendHTTPDService(c httpd.Config) {
 	s.Services = append(s.Services, srv)
 }
 
+
+func (s *Server) appendHintedHandoffService(c hh.Config) error {
+	if !c.Enabled {
+		s.Logger.Info("hinted handoff is disable.")
+		return nil
+	}
+	srv:= hh.NewService(c,s.ShardWriter,s.MetaClient)
+	s.Services = append(s.Services, srv)
+	return nil
+}
 // Close shuts down the meta and data stores and all services.
 func (s *Server) Close() error {
 	//stopProfile()
@@ -336,6 +358,18 @@ func (s *Server) Close() error {
 	// Close the listener first to stop any new connections
 	if s.Listener != nil {
 		s.Listener.Close()
+	}
+
+	for _, service := range s.Services {
+		service.Close()
+	}
+
+	if s.PointsWriter != nil {
+		s.PointsWriter.Close()
+	}
+
+	if s.TSDBStore != nil {
+		s.TSDBStore.Close()
 	}
 
 	// Finally close the meta-store since everything else depends on it
@@ -391,15 +425,14 @@ func (s *Server) initializeMetaClient() error {
 		//}
 
 		httpAddr := s.config.Global.Hostname + s.config.HTTPD.BindAddress
-		tcpAddr := s.config.Global.Hostname + s.config.BindAddress
+		tcpAddr := s.config.Global.Hostname + s.config.DataExt.BindAddress
 		node, err := s.MetaClient.CreateDataNode(httpAddr, tcpAddr)
 		for err != nil {
-			log.Printf("Unable to create data node. retry in 1s: %s", err.Error())
+			s.Logger.Error(fmt.Sprintf("Unable to create data node. retry in 1s: %s", err.Error()))
 			time.Sleep(time.Second)
 			_, err = s.MetaClient.CreateDataNode(httpAddr, tcpAddr)
 		}
 
-		log.Println(node.ID, node.Host, node.TCPHost)
 		s.Node.TCPHost = node.TCPHost
 		s.Node.Host = node.Host
 		s.Node.ID = node.ID

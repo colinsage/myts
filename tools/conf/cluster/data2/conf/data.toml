@@ -1,18 +1,18 @@
 [global]
-    meta-enable = true
+    meta-enable = false
     data-enable = true
 
     hostname = "127.0.0.1"
 
     # set a domain or vip
-    join = "127.0.0.1:6091"
+    join = "127.0.0.1:7091,127.0.0.1:8091,127.0.0.1:9091"
 
 [http]
   # Determines whether HTTP endpoint is enabled.
   # enabled = true
 
   # The bind address used by the HTTP service.
-  bind-address = ":6086"
+  bind-address = ":8086"
 
   # Determines whether user authentication is enabled over HTTP/HTTPS.
   # auth-enabled = false
@@ -53,20 +53,20 @@
   # unix-socket-enabled = false
 
   # The path of the unix domain socket.
-  bind-socket = "./_cluster/data0/influxdb.sock"
+  bind-socket = "./_data/cluster/data2/influxdb.sock"
 
 [meta]
   # Controls if this node should run the metaservice and participate in the Raft group
   enabled = true
 
   # Where the metadata/raft database is stored
-  dir = "./_cluster/meta0/meta"
+  dir = "./_data/cluster/meta1"
 
   # The raft address to bind to
-  raft-bind-address = "127.0.0.1:6088"
+  raft-bind-address = "127.0.0.1:7088"
 
   # The default address to bind the API to
-  http-bind-address = "127.0.0.1:6091"
+  http-bind-address = "127.0.0.1:7091"
   https-enabled = false
   https-certificate = ""
 
@@ -91,10 +91,10 @@
 
 [data]
   # The directory where the TSM storage engine stores TSM files.
-  dir = "./_cluster/data0/data"
+  dir = "./_data/cluster/data2/data"
 
   # The directory where the TSM storage engine stores WAL files.
-  wal-dir = "./_cluster/data0/wal"
+  wal-dir = "./_data/cluster/data2/wal"
 
   # The amount of time that a write will wait before fsyncing.  A duration
   # greater than 0 can be used to batch up multiple fsync calls.  This is useful for slower
@@ -124,7 +124,7 @@
   # cache-max-memory-size = 1048576000
 
 [data-ext]
-  bind-address = ":6087"
+  bind-address = ":8087"
   # The default time a write request will wait until a "timeout" error is returned to the caller.
   # write-timeout = "10s"
 
@@ -153,6 +153,26 @@
   # The maxium number of group by time bucket a SELECT can create.  A value of zero will max the maximum
   # number of buckets unlimited.
   # max-select-buckets = 0
+
+[hinted-handoff]
+  enabled = true
+  dir = "./_data/cluster/data2/hh"
+  max-size = 1073741824
+  max-age = "168h"
+  retry-rate-limit = 0
+
+  # Hinted handoff will start retrying writes to down nodes at a rate of once per second.
+  # If any error occurs, it will backoff in an exponential manner, until the interval
+  # reaches retry-max-interval. Once writes to all nodes are successfully completed the
+  # interval will reset to retry-interval.
+  retry-interval = "1s"
+  retry-max-interval = "1m"
+
+  # Interval between running checks for data that should be purged. Data is purged from
+  # hinted-handoff queues for two reasons. 1) The data is older than the max age, or
+  # 2) the target node has been dropped from the cluster. Data is never dropped until
+  # it has reached max-age however, for a dropped node or not.
+  purge-interval = "1h"
 
 [retention]
   # Determines whether retention policy enforcement enabled.

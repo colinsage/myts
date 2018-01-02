@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"github.com/influxdata/influxdb/services/meta"
 	"github.com/colinsage/myts/services/meta/internal"
-	"encoding/json"
 	"github.com/influxdata/influxdb"
 	"github.com/influxdata/influxql"
 )
@@ -362,8 +361,8 @@ func (data *Data) UnmarshalBinary(buf []byte) error {
 		return err
 	}
 
-	tb,_ := json.Marshal(pb)
-	fmt.Println(string(tb[:]))
+	//tb,_ := json.Marshal(pb)
+	//fmt.Println(string(tb[:]))
 
 	data.unmarshal(&pb)
 	return nil

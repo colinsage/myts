@@ -20,6 +20,7 @@ import (
 	"github.com/colinsage/myts/services/meta"
 	"github.com/colinsage/myts/services/data"
 
+	"github.com/colinsage/myts/services/hh"
 )
 
 // Config represents the configuration format for the influxd binary.
@@ -32,6 +33,8 @@ type Config struct {
 	Meta    *meta.Config `toml:"meta"`
 	Data    tsdb.Config  `toml:"data"`
 	DataExt *data.Config `toml:"data-ext"`
+
+	HH hh.Config  `toml:"hinted-handoff"`
 
 	Retention   retention.Config   `toml:"retention"`
 	Precreator  precreator.Config  `toml:"shard-precreation"`
@@ -55,6 +58,8 @@ type Global struct {
 
 	MetaEnabled bool  `toml:"meta-enable"`
 	DataEnabled bool  `toml:"data-enable"`
+
+	LogPath string  `toml:"log-path"`
 }
 
 // NewConfig returns an instance of Config with reasonable defaults.
@@ -64,6 +69,7 @@ func NewConfig() *Config {
 	c.Meta = meta.NewConfig()
 	c.Data = tsdb.NewConfig()
 	c.DataExt = data.NewConfig()
+	c.HH = hh.NewConfig()
 
 	c.Monitor = monitor.NewConfig()
 	c.HTTPD = httpd.NewConfig()

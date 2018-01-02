@@ -1,5 +1,7 @@
 .idea/
+_data/
 _cluster/
+
 bin/
 pgk/
 vendor/

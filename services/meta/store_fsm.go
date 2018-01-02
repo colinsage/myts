@@ -9,7 +9,6 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/hashicorp/raft"
 	"github.com/colinsage/myts/services/meta/internal"
-	"log"
 	"github.com/influxdata/influxdb/services/meta"
 	"github.com/influxdata/influxql"
 )
@@ -201,7 +200,7 @@ func (fsm *storeFSM) applyDeleteNodeCommand(cmd *internal.Command) interface{} {
 
 func (fsm *storeFSM) applyCreateDatabaseCommand(cmd *internal.Command) interface{} {
 
-	log.Println("create db start")
+	fsm.logger.Debug("create db start")
 	ext, _ := proto.GetExtension(cmd, internal.E_CreateDatabaseCommand_Command)
 	v := ext.(*internal.CreateDatabaseCommand)
 
@@ -248,7 +247,7 @@ func (fsm *storeFSM) applyCreateDatabaseCommand(cmd *internal.Command) interface
 
 	fsm.data = other
 
-	log.Println("create db done")
+	fsm.logger.Debug("create db done")
 	return nil
 }
 

@@ -412,7 +412,7 @@ func (w *PointsWriter) writeToShard(shard *meta.ShardInfo, database, retentionPo
 			atomic.AddInt64(&w.stats.PointWriteReqRemote, int64(len(points)))
 			err := w.ShardWriter.WriteShard(shardID, owner.NodeID, points)
 			if err != nil  {
-				fmt.Println("write remoet err. " + err.Error())
+				w.Logger.Error("write remoet err. " + err.Error())
 				// The remote write failed so queue it via hinted handoff
 				atomic.AddInt64(&w.stats.WritePointReqHH, 1)
 				if w.HintedHandoff != nil {

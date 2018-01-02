@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"runtime"
 	"strconv"
@@ -86,7 +85,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "GET":
 		switch r.URL.Path {
 		case "/ping":
-			log.Printf("in serve http ping")
+			h.logger.Info("in serve http ping")
 			h.WrapHandler("ping", h.servePing).ServeHTTP(w, r)
 		case "/lease":
 			h.WrapHandler("lease", h.serveLease).ServeHTTP(w, r)
@@ -146,7 +145,6 @@ func (h *handler) serveExec(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		log.Println("in join handler")
 		node, err := h.store.join(n)
 		if err == raft.ErrNotLeader {
 			l := h.store.leaderHTTP()
@@ -264,7 +262,7 @@ func (h *handler) serveSnapshot(w http.ResponseWriter, r *http.Request) {
 
 		d, _ :=json.Marshal(ss)
 		js := string(d[:])
-		log.Println("snapshot" + js)
+		h.logger.Debug("snapshot" + js)
 
 		b, err := ss.MarshalBinary()
 		if err != nil {

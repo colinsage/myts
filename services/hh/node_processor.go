@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 	"sync"
-	"log"
 	"os"
 	"io"
+	"github.com/uber-go/zap"
 )
 
 type NodeProcessor struct {
@@ -29,7 +29,7 @@ type NodeProcessor struct {
 	meta   metaClient
 	writer shardWriter
 
-	Logger  *log.Logger
+	Logger  zap.Logger
 }
 
 // NewNodeProcessor returns a new NodeProcessor for the given node, using dir for
@@ -45,10 +45,13 @@ func NewNodeProcessor(nodeID uint64, dir string, w shardWriter, m metaClient) *N
 		dir:              dir,
 		writer:           w,
 		meta:             m,
-		Logger:           log.New(os.Stderr, "[handoff] ", log.LstdFlags),
+		Logger:           zap.New(zap.NullEncoder()),
 	}
 }
 
+func (n *NodeProcessor) WithLogger(log zap.Logger) {
+	n.Logger = log.With(zap.String("service", "handoff"))
+}
 // Open opens the NodeProcessor. It will read and write data present in dir, and
 // start transmitting data to the node. A NodeProcessor must be opened before it
 // can accept hinted data.
@@ -154,7 +157,7 @@ func (n *NodeProcessor) run() {
 
 		case <-time.After(n.PurgeInterval):
 			if err := n.queue.PurgeOlderThan(time.Now().Add(-n.MaxAge)); err != nil {
-				n.Logger.Printf("failed to purge for node %d: %s", n.nodeID, err.Error())
+				n.Logger.Info(fmt.Sprintf("failed to purge for node %d: %s", n.nodeID, err.Error()))
 			}
 
 		case <-time.After(currInterval):
@@ -211,10 +214,10 @@ func (n *NodeProcessor) SendWrite() (int, error) {
 	// unmarshal the byte slice back to shard ID and points
 	shardID, points, err := unmarshalWrite(buf)
 	if err != nil {
-		n.Logger.Printf("unmarshal write failed: %v", err)
+		n.Logger.Info(fmt.Sprintf("unmarshal write failed: %v", err))
 		// Try to skip it.
 		if err := n.queue.Advance(); err != nil {
-			n.Logger.Printf("failed to advance queue for node %d: %s", n.nodeID, err.Error())
+			n.Logger.Info(fmt.Sprintf("failed to advance queue for node %d: %s", n.nodeID, err.Error()))
 		}
 		return 0, err
 	}
@@ -224,7 +227,7 @@ func (n *NodeProcessor) SendWrite() (int, error) {
 	}
 
 	if err := n.queue.Advance(); err != nil {
-		n.Logger.Printf("failed to advance queue for node %d: %s", n.nodeID, err.Error())
+		n.Logger.Info(fmt.Sprintf("failed to advance queue for node %d: %s", n.nodeID, err.Error()))
 	}
 
 	return len(buf), nil
@@ -252,7 +255,7 @@ func (n *NodeProcessor) Tail() string {
 func (n *NodeProcessor) Active() (bool, error) {
 	nio, err := n.meta.DataNode(n.nodeID)
 	if err != nil {
-		n.Logger.Printf("failed to determine if node %d is active: %s", n.nodeID, err.Error())
+		n.Logger.Info(fmt.Sprintf("failed to determine if node %d is active: %s", n.nodeID, err.Error()))
 		return false, err
 	}
 	return nio != nil, nil

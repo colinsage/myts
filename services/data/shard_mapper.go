@@ -9,12 +9,11 @@ import (
 	"github.com/influxdata/influxdb/query"
 	"github.com/influxdata/influxdb/tsdb"
 
-	"fmt"
 	"github.com/influxdata/influxdb/services/meta"
 	"github.com/influxdata/influxql"
 	"context"
 	"github.com/influxdata/influxdb/coordinator"
-	"log"
+	"github.com/uber-go/zap"
 )
 
 // IteratorCreator is an interface that combines mapping fields and creating iterators.
@@ -45,14 +44,16 @@ type DistributedShardMapper struct {
 
 	// Remote execution timeout
 	Timeout time.Duration
+
+	Logger zap.Logger
 }
 
 func (c *DistributedShardMapper)  MapShards(sources influxql.Sources, t influxql.TimeRange, opt query.SelectOptions) (query.ShardGroup, error) {
-	log.Println("in DistributedShardMapper MapShards ")
 	ics := &ShardMappings{
 		HasLocal: false,
 	}
 
+	ics.WithLogger(c.Logger)
 	tmin := time.Unix(0, t.MinTimeNano())
 	tmax := time.Unix(0, t.MaxTimeNano())
 	if err := c.mapShards(ics, sources, tmin, tmax); err != nil {
@@ -157,6 +158,12 @@ type ShardMappings struct{
 	Local *coordinator.LocalShardMapping
 	Remotes []*RemoteShardMapping
 	HasLocal bool
+
+	Logger zap.Logger
+}
+
+func (sm *ShardMappings) WithLogger(logger zap.Logger){
+	sm.Logger = logger.With(zap.String("service", "shard-mapping"))
 }
 
 func (sm *ShardMappings) FieldDimensions(m *influxql.Measurement) (fields map[string]influxql.DataType, dimensions map[string]struct{}, err error) {
@@ -222,7 +229,7 @@ func (sm *ShardMappings) CreateIterator(ctx context.Context, m *influxql.Measure
 				itrs = append(itrs, input )
 			}
 		}else{
-			fmt.Println("error:"+ err.Error())
+			sm.Logger.Error("error:"+ err.Error())
 		}
 	}
 
@@ -231,7 +238,7 @@ func (sm *ShardMappings) CreateIterator(ctx context.Context, m *influxql.Measure
 		if err == nil {
 			itrs = append(itrs, input )
 		}else{
-			fmt.Println(err.Error())
+			sm.Logger.Error(err.Error())
 		}
 	}
 
@@ -338,23 +345,23 @@ func (ic *RemoteShardMapping) CreateIterator(ctx context.Context, m *influxql.Me
 	return query.NewReaderIterator(ctx, conn, t, query.IteratorStats{} ), nil
 }
 
-func GetPointType(point query.Point) influxql.DataType {
-	t := influxql.Unknown
-	switch pt := point.(type) {
-		case *query.FloatPoint:
-			t = influxql.Float
-		case *query.IntegerPoint:
-			t = influxql.Integer
-		case *query.StringPoint:
-			t = influxql.String
-		case *query.BooleanPoint:
-			t = influxql.Boolean
-		default:
-			fmt.Printf("unexpected type %T\n", pt)
-	}
-
-	return t
-}
+//func GetPointType(point query.Point) influxql.DataType {
+//	t := influxql.Unknown
+//	switch pt := point.(type) {
+//		case *query.FloatPoint:
+//			t = influxql.Float
+//		case *query.IntegerPoint:
+//			t = influxql.Integer
+//		case *query.StringPoint:
+//			t = influxql.String
+//		case *query.BooleanPoint:
+//			t = influxql.Boolean
+//		default:
+//			fmt.Printf("unexpected type %T\n", pt)
+//	}
+//
+//	return t
+//}
 // FieldDimensions returns the unique fields and dimensions across a list of sources.
 func (ic *RemoteShardMapping) FieldDimensions(m *influxql.Measurement) (fields map[string]influxql.DataType, dimensions map[string]struct{}, err error) {
 	conn, err := ic.dialer.DialNode(ic.nodeID)

@@ -5,13 +5,13 @@ import (
 	"path/filepath"
 	"fmt"
 	"sync"
-	"log"
 	"github.com/influxdata/influxdb/monitor/diagnostics"
 	"github.com/influxdata/influxdb/models"
 	"os"
 	"io/ioutil"
 	"strconv"
 	"github.com/influxdata/influxdb/services/meta"
+	"github.com/uber-go/zap"
 )
 
 // ErrHintedHandoffDisabled is returned when attempting to use a
@@ -34,7 +34,7 @@ type Service struct {
 
 	processors map[uint64]*NodeProcessor
 
-	Logger  *log.Logger
+	Logger  zap.Logger
 	cfg     Config
 
 	shardWriter shardWriter
@@ -60,12 +60,15 @@ func NewService(c Config, w shardWriter, m metaClient) *Service {
 		cfg:         c,
 		closing:     make(chan struct{}),
 		processors:  make(map[uint64]*NodeProcessor),
-		Logger:      log.New(os.Stderr, "[handoff] ", log.LstdFlags),
+		Logger:      zap.New(zap.NullEncoder()),
 		shardWriter: w,
 		MetaClient:  m,
 	}
 }
 
+func (s *Service) WithLogger(log zap.Logger) {
+	s.Logger = log.With(zap.String("service", "handoff"))
+}
 // Open opens the hinted handoff service.
 func (s *Service) Open() error {
 	s.mu.Lock()
@@ -74,7 +77,7 @@ func (s *Service) Open() error {
 		// Allow Open to proceed, but don't do anything.
 		return nil
 	}
-	s.Logger.Printf("Starting hinted handoff service")
+	s.Logger.Info("Starting hinted handoff service")
 	s.closing = make(chan struct{})
 
 	// Register diagnostics if a Monitor service is available.
@@ -83,7 +86,7 @@ func (s *Service) Open() error {
 	}
 
 	// Create the root directory if it doesn't already exist.
-	s.Logger.Printf("Using data dir: %v", s.cfg.Dir)
+	s.Logger.Info(fmt.Sprintf("Using data dir: %v", s.cfg.Dir))
 	if err := os.MkdirAll(s.cfg.Dir, 0700); err != nil {
 		return fmt.Errorf("mkdir all: %s", err)
 	}
@@ -102,6 +105,7 @@ func (s *Service) Open() error {
 		}
 
 		n := NewNodeProcessor(nodeID, s.pathforNode(nodeID), s.shardWriter, s.MetaClient)
+		n.WithLogger(s.Logger)
 		if err := n.Open(); err != nil {
 			return err
 		}
@@ -116,7 +120,7 @@ func (s *Service) Open() error {
 
 // Close closes the hinted handoff service.
 func (s *Service) Close() error {
-	s.Logger.Println("shutting down hh service")
+	s.Logger.Info("shutting down hh service")
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -137,11 +141,6 @@ func (s *Service) Close() error {
 	s.closing = nil
 
 	return nil
-}
-
-// SetLogger sets the internal logger to the logger passed in.
-func (s *Service) SetLogger(l *log.Logger) {
-	s.Logger = l
 }
 
 // WriteShard queues the points write for shardID to node ownerID to handoff queue
@@ -224,13 +223,13 @@ func (s *Service) purgeInactiveProcessors() {
 				for k, v := range s.processors {
 					lm, err := v.LastModified()
 					if err != nil {
-						s.Logger.Printf("failed to determine LastModified for processor %d: %s", k, err.Error())
+						s.Logger.Info(fmt.Sprintf("failed to determine LastModified for processor %d: %s", k, err.Error()))
 						continue
 					}
 
 					active, err := v.Active()
 					if err != nil {
-						s.Logger.Printf("failed to determine if node %d is active: %s", k, err.Error())
+						s.Logger.Info(fmt.Sprintf("failed to determine if node %d is active: %s", k, err.Error()))
 						continue
 					}
 					if active {
@@ -244,11 +243,11 @@ func (s *Service) purgeInactiveProcessors() {
 					}
 
 					if err := v.Close(); err != nil {
-						s.Logger.Printf("failed to close node processor %d: %s", k, err.Error())
+						s.Logger.Info(fmt.Sprintf("failed to close node processor %d: %s", k, err.Error()))
 						continue
 					}
 					if err := v.Purge(); err != nil {
-						s.Logger.Printf("failed to purge node processor %d: %s", k, err.Error())
+						s.Logger.Info(fmt.Sprintf("failed to purge node processor %d: %s", k, err.Error()))
 						continue
 					}
 					delete(s.processors, k)

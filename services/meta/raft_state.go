@@ -2,8 +2,6 @@ package meta
 
 import (
 	"fmt"
-	"io/ioutil"
-	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -14,6 +12,7 @@ import (
 	"github.com/hashicorp/raft-boltdb"
 	"strconv"
 	"github.com/uber-go/zap"
+	"github.com/colinsage/myts/log"
 )
 
 // Raft configuration.
@@ -56,10 +55,14 @@ func (r *raftState) open(s *store, ln net.Listener, initializePeers []string) er
 
 	// Setup raft configuration.
 	config := raft.DefaultConfig()
-	config.LogOutput = ioutil.Discard
+	//config.LogOutput = ioutil.Discard
 
 	if r.config.ClusterTracing {
-		config.Logger = log.New(os.Stderr,"raft",log.LstdFlags)
+		config.LogOutput = stdlog.NewStdLogger(r.logger, zap.DebugLevel, "service", "raft")
+
+	//	config.Logger = log.New(os.Stderr,"raft",log.LstdFlags)
+		//stdLogger, _ := zwrap.Standardize(r.logger, zap.DebugLevel)
+		//config.Logger = &stdLogger
 	}
 	//config.HeartbeatTimeout = time.Duration(r.config.HeartbeatTimeout)
 	//config.ElectionTimeout = time.Duration(r.config.ElectionTimeout)
@@ -73,7 +76,7 @@ func (r *raftState) open(s *store, ln net.Listener, initializePeers []string) er
 	//r.raftLayer = newRaftLayer(r.addr, r.ln)
 
 	// Create a transport layer
-	trans, error := raft.NewTCPTransport(r.config.RaftBindAddress,nil, 3, 1*time.Second, os.Stdout)
+	trans, error := raft.NewTCPTransport(r.config.RaftBindAddress,nil, 3, 1*time.Second, config.LogOutput)
 	if error != nil {
 		r.logger.Error(error.Error())
 		return error
@@ -115,7 +118,7 @@ func (r *raftState) open(s *store, ln net.Listener, initializePeers []string) er
 
 
 	if err := raft.BootstrapCluster(config, store, store, snapshots, r.transport, configuration); err != nil {
-		log.Printf("[ERR] BootstrapCluster failed: %v \r\n", err)
+		r.logger.Error(fmt.Sprintf("[ERR] BootstrapCluster failed: %v \r\n", err))
 	}
 
 	// Create raft log.
@@ -125,7 +128,7 @@ func (r *raftState) open(s *store, ln net.Listener, initializePeers []string) er
 	}
 	r.raft = ra
 
-	log.Println("new raft done.")
+	r.logger.Debug("new raft done.")
 	r.wg.Add(1)
 	go r.logLeaderChanges()
 
@@ -185,10 +188,10 @@ func (r *raftState) apply(b []byte) error {
 	// Apply to raft log.
 	f := r.raft.Apply(b, time.Second*5)
 	if err := f.Error(); err != nil {
-		log.Printf("raft state in apply error. "+ err.Error())
+		r.logger.Error("raft state in apply error. "+ err.Error())
 		return err
 	}
-	log.Printf("raft state in apply done" )
+	r.logger.Debug("raft state in apply done" )
 	// Return response if it's an error.
 	// No other non-nil objects should be returned.
 	resp := f.Response()
@@ -257,13 +260,13 @@ func (r *raftState) removePeer(addr string) error {
 func (r *raftState) peers() ([]string, error) {
 	f := r.raft.GetConfiguration()
 	if err := f.Error(); err != nil {
-		log.Printf("raft state in apply , error" )
+		r.logger.Debug("raft state in apply , error" )
 		return nil, err
 	}
 	peers := f.Configuration().Servers
 
 	//js,_ := json.Marshal(peers)
-	log.Println("raft status: " + r.raft.String())
+	r.logger.Debug("raft status: " + r.raft.String())
 
 	var p  []string
 	for _, s := range peers {

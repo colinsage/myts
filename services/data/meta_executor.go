@@ -2,15 +2,13 @@ package data
 
 import (
 	"fmt"
-	"log"
 	"net"
-	"os"
 	"sync"
 	"time"
 
-	"github.com/influxdata/influxdb"
 	"github.com/influxdata/influxdb/services/meta"
 	"github.com/influxdata/influxql"
+	"github.com/uber-go/zap"
 )
 
 const (
@@ -24,8 +22,8 @@ type MetaExecutor struct {
 	timeout        time.Duration
 	pool           *clientPool
 	maxConnections int
-	Logger         *log.Logger
-	Node           *influxdb.Node
+	Logger         zap.Logger
+	Node           *meta.NodeInfo
 
 	nodeExecutor interface {
 		executeOnNode(stmt influxql.Statement, database string, node *meta.NodeInfo) error
@@ -43,11 +41,15 @@ func NewMetaExecutor() *MetaExecutor {
 		timeout:        metaExecutorWriteTimeout,
 		pool:           newClientPool(),
 		maxConnections: metaExecutorMaxWriteConnections,
-		Logger:         log.New(os.Stderr, "[meta-executor] ", log.LstdFlags),
+		Logger:         zap.New(zap.NullEncoder()),
 	}
 	m.nodeExecutor = m
 
 	return m
+}
+
+func (w *MetaExecutor) WithLogger(log zap.Logger) {
+	w.Logger = log.With(zap.String("service", "meta-executor"))
 }
 
 // remoteNodeError wraps an error with context about a node that

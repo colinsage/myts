@@ -3,7 +3,6 @@ package meta
 import (
 	"errors"
 	"fmt"
-	"log"
 	"math/rand"
 	"net"
 	"os"
@@ -189,7 +188,7 @@ func (s *store) peers() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.raftState == nil {
-		log.Println("[ERROR] rafte state is nil")
+		s.logger.Error("[ERROR] rafte state is nil")
 		return []string{s.raftAddr}
 	}
 	peers, err := s.raftState.peers()
