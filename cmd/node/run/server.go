@@ -29,6 +29,7 @@ import (
 	"io"
 	"strconv"
 	"github.com/colinsage/myts/services/hh"
+	"strings"
 )
 
 
@@ -134,6 +135,14 @@ func NewServer(c *Config, buildInfo *BuildInfo) (*Server, error) {
 	if c.Global.MetaEnabled{
 		s.MetaService = thisMeta.NewService(c.Meta)
 		s.MetaService.Version = s.buildInfo.Version
+
+		if strings.HasPrefix(c.Meta.HTTPBindAddress, ":") {
+			c.Meta.HTTPBindAddress = c.Global.Hostname + c.Meta.HTTPBindAddress
+		}
+
+		if strings.HasPrefix(c.Meta.RaftBindAddress, ":") {
+			c.Meta.RaftBindAddress = c.Global.Hostname + c.Meta.RaftBindAddress
+		}
 	}
 
 	if c.Global.DataEnabled {
@@ -476,10 +485,10 @@ type Service interface {
 }
 
 
-type tcpaddr struct{ host string }
-
-func (a *tcpaddr) Network() string { return "tcp" }
-func (a *tcpaddr) String() string  { return a.host }
+//type tcpaddr struct{ host string }
+//
+//func (a *tcpaddr) Network() string { return "tcp" }
+//func (a *tcpaddr) String() string  { return a.host }
 
 
 type monitorPointsWriter data.PointsWriter

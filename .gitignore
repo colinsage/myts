@@ -7,4 +7,6 @@ pgk/
 vendor/
 
 copy.sh
+build.sh
+_build/
 
