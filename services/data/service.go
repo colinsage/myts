@@ -25,21 +25,6 @@ const MaxMessageSize = 1024 * 1024 * 1024 // 1GB
 // MuxHeader is the header byte used in the TCP mux.
 const MuxHeader = 2
 
-// Statistics maintained by the cluster package
-const (
-	writeShardReq       = "writeShardReq"
-	writeShardPointsReq = "writeShardPointsReq"
-	writeShardFail      = "writeShardFail"
-
-	createIteratorReq  = "createIteratorReq"
-	createIteratorResp = "createIteratorResp"
-
-	fieldDimensionsReq  = "fieldDimensionsReq"
-	fieldDimensionsResp = "fieldDimensionsResp"
-
-	mapTypeReq  = "mapTypeReq"
-	mapTypeResp = "mapTypeResp"
-)
 
 type ServiceStatistics struct {
 	WriteShardReq           int64
@@ -140,10 +125,10 @@ func (s *Service) serve() {
 		conn, err := s.Listener.Accept()
 		if err != nil {
 			if strings.Contains(err.Error(), "connection closed") {
-				s.Logger.Info(fmt.Sprintf("cluster service accept error: %s", err))
+				s.Logger.Error(fmt.Sprintf("cluster service accept error: %s", err))
 				return
 			}
-			s.Logger.Info(fmt.Sprintf("accept error: %s", err))
+			s.Logger.Error(fmt.Sprintf("accept error: %s", err))
 			continue
 		}
 
@@ -183,7 +168,6 @@ func (s *Service) handleConn(conn net.Conn) {
 	}()
 
 	s.Logger.Debug(fmt.Sprintf("accept remote connection from %v\n", conn.RemoteAddr()))
-	//s.Logger.Info(fmt.Sprintf("accept remote connection from %v\n", conn.RemoteAddr()))
 	defer func() {
 		s.Logger.Info(fmt.Sprintf("close remote connection from %v\n", conn.RemoteAddr()))
 	}()
@@ -204,16 +188,13 @@ func (s *Service) handleConn(conn net.Conn) {
 			buf, err := ReadLV(conn)
 			if err != nil {
 				s.Logger.Error(fmt.Sprintf("unable to read length-value: %s", err))
-				//s.Logger.Info(fmt.Sprint("unable to read length-value: %s", err))
 				return
 			}
 
-			s.Logger.Debug("read req sucess")
 			err = s.processWriteShardRequest(buf)
 			if err != nil {
 				s.Logger.Error(fmt.Sprint("process write shard error: %s", err))
 			}
-			s.Logger.Debug("write remote points sucess")
 			s.writeShardResponse(conn, err)
 		case executeStatementRequestMessage:
 			buf, err := ReadLV(conn)
@@ -236,9 +217,6 @@ func (s *Service) handleConn(conn net.Conn) {
 		case mapTypeRequestMessage:
 			s.processMapTypeRequest(conn)
 			return
-		//case seriesKeysRequestMessage:
-		//	s.processSeriesKeysRequest(conn)
-		//	return
 		default:
 			s.Logger.Info(fmt.Sprintf("cluster service message type not found: %d", typ))
 		}
@@ -282,7 +260,6 @@ func (s *Service) processWriteShardRequest(buf []byte) error {
 	if err := req.UnmarshalBinary(buf); err != nil {
 		return err
 	}
-	s.Logger.Debug("unmarshal sucess.")
 	points := req.Points()
 	err := s.TSDBStore.WriteToShard(req.ShardID(), points)
 
@@ -329,15 +306,14 @@ func (s *Service) writeShardResponse(w io.Writer, e error) {
 	// Marshal response to binary.
 	buf, err := resp.MarshalBinary()
 	if err != nil {
-		s.Logger.Info(fmt.Sprintf("error marshalling shard response: %s", err))
+		s.Logger.Error(fmt.Sprintf("error marshalling shard response: %s", err))
 		return
 	}
 
 	// Write to connection.
 	if err := WriteTLV(w, writeShardResponseMessage, buf); err != nil {
-		s.Logger.Info(fmt.Sprintf("write shard response error: %s", err))
+		s.Logger.Error(fmt.Sprintf("write shard response error: %s", err))
 	}
-	s.Logger.Debug("write to write points resp sucess.")
 }
 
 func (s *Service) processCreateIteratorRequest(conn net.Conn) {
@@ -361,14 +337,14 @@ func (s *Service) processCreateIteratorRequest(conn net.Conn) {
 		return nil
 	}(); err != nil {
 		itr.Close()
-		s.Logger.Info(fmt.Sprintf("error reading CreateIterator request: %s", err))
+		s.Logger.Error(fmt.Sprintf("error reading CreateIterator request: %s", err))
 		EncodeTLV(conn, createIteratorResponseMessage, &CreateIteratorResponse{Err: err})
 		return
 	}
 
 	// Encode success response.
 	if err := EncodeTLV(conn, createIteratorResponseMessage, &CreateIteratorResponse{}); err != nil {
-		s.Logger.Info(fmt.Sprintf("error writing CreateIterator response: %s", err))
+		s.Logger.Error(fmt.Sprintf("error writing CreateIterator response: %s", err))
 		return
 	}
 
@@ -379,7 +355,7 @@ func (s *Service) processCreateIteratorRequest(conn net.Conn) {
 
 	// Stream iterator to connection.
 	if err := query.NewIteratorEncoder(conn).EncodeIterator(itr); err != nil {
-		s.Logger.Info(fmt.Sprintf("error encoding CreateIterator iterator: %s", err))
+		s.Logger.Error(fmt.Sprintf("error encoding CreateIterator iterator: %s", err))
 		return
 	}
 }
@@ -394,15 +370,6 @@ func (s *Service) processFieldDimensionsRequest(conn net.Conn) {
 			return err
 		}
 
-		// Collect iterator creators for each shard.
-		//ics := make([]influxql.IteratorCreator, 0, len(req.ShardIDs))
-		//for _, shardID := range req.ShardIDs {
-		//	ic := s.TSDBStore.ShardIteratorCreator(shardID)
-		//	if ic == nil {
-		//		return nil
-		//	}
-		//	ics = append(ics, ic)
-		//}
 		sg := s.TSDBStore.ShardGroup(req.ShardIDs)
 		// Generate a single iterator from all shards.
 		//f, d, err := influxql.IteratorCreators(ics).FieldDimensions(req.Sources)
@@ -415,7 +382,7 @@ func (s *Service) processFieldDimensionsRequest(conn net.Conn) {
 
 		return nil
 	}(); err != nil {
-		s.Logger.Info(fmt.Sprintf("error reading FieldDimensions request: %s", err))
+		s.Logger.Error(fmt.Sprintf("error reading FieldDimensions request: %s", err))
 		EncodeTLV(conn, fieldDimensionsResponseMessage, &FieldDimensionsResponse{Err: err})
 		return
 	}
@@ -425,7 +392,7 @@ func (s *Service) processFieldDimensionsRequest(conn net.Conn) {
 		Fields:     fields,
 		Dimensions: dimensions,
 	}); err != nil {
-		s.Logger.Info(fmt.Sprintf("error writing FieldDimensions response: %s", err))
+		s.Logger.Error(fmt.Sprintf("error writing FieldDimensions response: %s", err))
 		return
 	}
 }
@@ -447,7 +414,7 @@ func (s *Service) processMapTypeRequest(conn net.Conn) {
 
 		return nil
 	}(); err != nil {
-		s.Logger.Info(fmt.Sprintf("error reading FieldDimensions request: %s", err))
+		s.Logger.Error(fmt.Sprintf("error reading FieldDimensions request: %s", err))
 		EncodeTLV(conn, mapTypeResponseMessage, &MapTypeResponse{Err: err})
 		return
 	}
@@ -456,51 +423,10 @@ func (s *Service) processMapTypeRequest(conn net.Conn) {
 	if err := EncodeTLV(conn, mapTypeResponseMessage, &MapTypeResponse{
 		Type: int(mapType),
 	}); err != nil {
-		s.Logger.Info(fmt.Sprintf("error writing FieldDimensions response: %s", err))
+		s.Logger.Error(fmt.Sprintf("error writing FieldDimensions response: %s", err))
 		return
 	}
 }
-//func (s *Service) processSeriesKeysRequest(conn net.Conn) {
-//	var seriesList influxql.SeriesList
-//	if err := func() error {
-//		// Parse request.
-//		var req SeriesKeysRequest
-//		if err := DecodeLV(conn, &req); err != nil {
-//			return err
-//		}
-//
-//		// Collect iterator creators for each shard.
-//		ics := make([]influxql.IteratorCreator, 0, len(req.ShardIDs))
-//		for _, shardID := range req.ShardIDs {
-//			ic := s.TSDBStore.ShardIteratorCreator(shardID)
-//			if ic == nil {
-//				return nil
-//			}
-//			ics = append(ics, ic)
-//		}
-//
-//		// Generate a single iterator from all shards.
-//		a, err := influxql.IteratorCreators(ics).SeriesKeys(req.Opt)
-//		if err != nil {
-//			return err
-//		}
-//		seriesList = a
-//
-//		return nil
-//	}(); err != nil {
-//		s.Logger.Printf("error reading SeriesKeys request: %s", err)
-//		EncodeTLV(conn, seriesKeysResponseMessage, &SeriesKeysResponse{Err: err})
-//		return
-//	}
-//
-//	// Encode success response.
-//	if err := EncodeTLV(conn, seriesKeysResponseMessage, &SeriesKeysResponse{
-//		SeriesList: seriesList,
-//	}); err != nil {
-//		s.Logger.Printf("error writing SeriesKeys response: %s", err)
-//		return
-//	}
-//}
 
 // ReadTLV reads a type-length-value record from r.
 func ReadTLV(r io.Reader) (byte, []byte, error) {

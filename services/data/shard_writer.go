@@ -68,7 +68,6 @@ func (w *ShardWriter) WriteShard(shardID, ownerID uint64, points []models.Point)
 	// Marshal into protocol buffers.
 	buf, err := request.MarshalBinary()
 
-	w.Logger.Info("write req marshal sucess")
 	if err != nil {
 		return err
 	}
@@ -80,14 +79,11 @@ func (w *ShardWriter) WriteShard(shardID, ownerID uint64, points []models.Point)
 		return err
 	}
 
-	w.Logger.Info("write req send sucess")
 	// Read the response.
 	conn.SetReadDeadline(time.Now().Add(time.Second*3))
 	_, buf, err = ReadTLV(conn)
 	if err!=nil {
-		w.Logger.Info("read write resp failed."+ err.Error())
-	}else {
-		w.Logger.Info("read write resp sucess .")
+		w.Logger.Error("read write resp failed."+ err.Error())
 	}
 
 	if err != nil {
@@ -100,7 +96,6 @@ func (w *ShardWriter) WriteShard(shardID, ownerID uint64, points []models.Point)
 	if err := response.UnmarshalBinary(buf); err != nil {
 		return err
 	}
-	w.Logger.Info("write resp from remote unmarshal sucess")
 	if response.Code() != 0 {
 		return fmt.Errorf("error code %d: %s", response.Code(), response.Message())
 	}

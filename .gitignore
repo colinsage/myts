@@ -6,6 +6,7 @@ bin/
 pgk/
 vendor/
 
+deploy.sh
 copy.sh
 _build/
 
