@@ -13,7 +13,6 @@ import (
 	"log"
 	"github.com/influxdata/influxdb/tsdb"
 	"github.com/influxdata/influxdb/services/httpd"
-	"github.com/influxdata/influxdb/services/retention"
 	"github.com/influxdata/influxdb/services/precreator"
 	"github.com/influxdata/influxdb/monitor"
 
@@ -21,6 +20,7 @@ import (
 	"github.com/colinsage/myts/services/data"
 
 	"github.com/colinsage/myts/services/hh"
+	"github.com/colinsage/myts/services/retention"
 )
 
 // Config represents the configuration format for the influxd binary.

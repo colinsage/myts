@@ -729,6 +729,23 @@ func (c *Client) ShardIDs() []uint64 {
 	return a
 }
 
+
+func (c *Client) ShardIDsByNode(nodeId uint64) []uint64 {
+	var a []uint64
+	for _, dbi := range c.data().Data.Databases {
+		for _, rpi := range dbi.RetentionPolicies {
+			for _, sgi := range rpi.ShardGroups {
+				for _, si := range sgi.Shards {
+					if si.OwnedBy(nodeId){
+						a = append(a, si.ID)
+					}
+				}
+			}
+		}
+	}
+	sort.Sort(uint64Slice(a))
+	return a
+}
 // ShardGroupsByTimeRange returns a list of all shard groups on a database and policy that may contain data
 // for the specified time range. Shard groups are sorted by start time.
 func (c *Client) ShardGroupsByTimeRange(database, policy string, min, max time.Time) (a []meta.ShardGroupInfo, err error) {

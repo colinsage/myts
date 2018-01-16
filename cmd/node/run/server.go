@@ -10,7 +10,6 @@ import (
 	"github.com/influxdata/influxdb/tsdb"
 	"github.com/influxdata/influxdb/monitor"
 	"github.com/influxdata/influxdb/models"
-	"github.com/influxdata/influxdb/services/retention"
 	"github.com/influxdata/influxdb/services/httpd"
 	"github.com/influxdata/influxdb/services/meta"
 
@@ -30,6 +29,7 @@ import (
 	"strconv"
 	"github.com/colinsage/myts/services/hh"
 	"strings"
+	"github.com/colinsage/myts/services/retention"
 )
 
 
@@ -330,6 +330,7 @@ func (s *Server) appendRetentionPolicyService(c retention.Config) {
 	srv := retention.NewService(c)
 	srv.MetaClient = s.MetaClient
 	srv.TSDBStore = s.TSDBStore
+	srv.Node = s.Node
 	s.Services = append(s.Services, srv)
 }
 
@@ -340,8 +341,7 @@ func (s *Server) appendHTTPDService(c httpd.Config) {
 	}
 	srv := httpd.NewService(c)
 	srv.Handler.MetaClient = s.MetaClient
-	//srv.Handler.QueryAuthorizer = thisMeta.NewQueryAuthorizer(s.MetaClient)
-	//srv.Handler.WriteAuthorizer = thisMeta.NewWriteAuthorizer(s.MetaClient)
+
 	srv.Handler.QueryExecutor = s.QueryExecutor
 	srv.Handler.Monitor = s.Monitor
 	srv.Handler.PointsWriter = s.PointsWriter
