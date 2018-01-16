@@ -736,7 +736,7 @@ func (c *Client) ShardIDsByNode(nodeId uint64) []uint64 {
 		for _, rpi := range dbi.RetentionPolicies {
 			for _, sgi := range rpi.ShardGroups {
 				for _, si := range sgi.Shards {
-					if si.OwnedBy(nodeId){
+					if si.OwnedBy(nodeId) && !sgi.Deleted(){
 						a = append(a, si.ID)
 					}
 				}
