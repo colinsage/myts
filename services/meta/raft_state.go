@@ -260,7 +260,7 @@ func (r *raftState) removePeer(addr string) error {
 func (r *raftState) peers() ([]string, error) {
 	f := r.raft.GetConfiguration()
 	if err := f.Error(); err != nil {
-		r.logger.Debug("raft state in apply , error" )
+		r.logger.Error("raft state in apply , error" )
 		return nil, err
 	}
 	peers := f.Configuration().Servers

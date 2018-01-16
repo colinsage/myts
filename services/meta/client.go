@@ -1189,6 +1189,10 @@ func (c *Client) pollForUpdates() {
 		c.cacheData = data
 		c.updateAuthCache()
 		if idx < data.Data.Index {
+			// print data will remove in the later
+			metaJson, _ := json.Marshal(data)
+			c.logger.Info(string(metaJson[:]))
+
 			close(c.changed)
 			c.changed = make(chan struct{})
 		}
