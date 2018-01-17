@@ -10,7 +10,6 @@ import (
 	"github.com/influxdata/influxdb/tsdb"
 	"github.com/influxdata/influxdb/monitor"
 	"github.com/influxdata/influxdb/models"
-	"github.com/influxdata/influxdb/services/httpd"
 	"github.com/influxdata/influxdb/services/meta"
 
 	// Initialize the engine & index packages
@@ -30,6 +29,7 @@ import (
 	"github.com/colinsage/myts/services/hh"
 	"strings"
 	"github.com/colinsage/myts/services/retention"
+	"github.com/colinsage/myts/services/httpd"
 )
 
 

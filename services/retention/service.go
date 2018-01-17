@@ -1,5 +1,5 @@
 // Package retention provides the retention policy enforcement service.
-package retention 
+package retention
 
 import (
 	"fmt"
@@ -128,6 +128,7 @@ func (s *Service) run() {
 						exist = true
 					}
 				}
+				//TODO the new created shard may be not in meta store
 				if !exist {
 					if err := s.TSDBStore.DeleteShard(id); err != nil {
 						s.logger.Error(fmt.Sprintf("Failed to delete shard ID %d  %v. Will retry in %v", id, err, s.config.CheckInterval))
