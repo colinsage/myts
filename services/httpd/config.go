@@ -13,7 +13,7 @@ const (
 	DefaultBindSocket = "/var/run/influxdb.sock"
 
 	// DefaultMaxBodySize is the default maximum size of a client request body, in bytes. Specify 0 for no limit.
-	DefaultMaxBodySize = 25e6
+	DefaultMaxBodySize = 50e6
 )
 
 // Config represents a configuration for a HTTP service.

@@ -650,7 +650,7 @@ func (h *Handler) serveWrite(w http.ResponseWriter, r *http.Request, user meta.U
 	var bs []byte
 	if r.ContentLength > 0 {
 		if h.Config.MaxBodySize > 0 && r.ContentLength > int64(h.Config.MaxBodySize) {
-			h.httpError(w, http.StatusText(http.StatusRequestEntityTooLarge), http.StatusRequestEntityTooLarge)
+			h.httpError(w, http.StatusText(http.StatusRequestEntityTooLarge) + strconv.FormatInt(r.ContentLength,10) , http.StatusRequestEntityTooLarge)
 			return
 		}
 
