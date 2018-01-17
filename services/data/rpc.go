@@ -55,6 +55,14 @@ const (
 
 )
 
+type RpcError struct {
+	message string
+}
+
+func (e RpcError) Error() string {
+	return e.message
+}
+
 // WriteShardRequest represents the a request to write a slice of points to a shard
 type WriteShardRequest struct {
 	pb internal.WriteShardRequest
@@ -471,4 +479,298 @@ func (m *MapTypeResponse) UnmarshalBinary(data []byte) (error) {
 	return nil
 }
 
+type IteratorCostRequest struct {
+	ShardIDs []uint64
+	Measurement *influxql.Measurement
+	IteratorOptions *query.IteratorOptions
+}
 
+func (m *IteratorCostRequest) MarshalBinary() ([]byte, error) {
+
+	return proto.Marshal(&internal.IteratorCostRequest{
+		ShardIDs: m.ShardIDs,
+		Measurement: encodeMeasurement(m.Measurement),
+		IteratorOptions: encodeIteratorOptions(m.IteratorOptions),
+	})
+}
+
+func (m *IteratorCostRequest) UnmarshalBinary(data []byte) error {
+
+	var pb internal.IteratorCostRequest
+	if err := proto.Unmarshal(data, &pb); err != nil {
+		return err
+	}
+
+	m.ShardIDs = pb.GetShardIDs()
+	mm, err1 := decodeMeasurement(pb.GetMeasurement())
+	if err1 != nil {
+		return err1
+	}else {
+		m.Measurement = mm
+	}
+	mi, err2 := decodeIteratorOptions(pb.IteratorOptions)
+	if err2 != nil {
+		return err2
+	}else {
+		m.IteratorOptions = mi
+	}
+	return nil
+}
+
+
+type IteratorCostResponse struct {
+	Error string
+	IteratorCost query.IteratorCost
+}
+
+func (m *IteratorCostResponse) MarshalBinary() ([]byte, error) {
+	return proto.Marshal(&internal.IteratorCostResponse{
+		Err: &m.Error,
+		Cost : &internal.IteratorCost{
+			NumShards: proto.Int64(int64(m.IteratorCost.NumShards)),
+			NumSeries: proto.Int64(int64(m.IteratorCost.NumSeries)),
+			CachedValues: proto.Int64(int64(m.IteratorCost.CachedValues)),
+			NumFiles: proto.Int64(int64(m.IteratorCost.NumFiles)),
+			BlocksRead: proto.Int64(int64(m.IteratorCost.BlocksRead)),
+			BlockSize: proto.Int64(int64(m.IteratorCost.BlockSize)),
+		},
+	})
+}
+
+func (m *IteratorCostResponse) UnmarshalBinary(data []byte) error {
+
+	var pb internal.IteratorCostResponse
+	if err := proto.Unmarshal(data, &pb); err != nil {
+		return err
+	}
+
+	m.Error = pb.GetErr()
+	m.IteratorCost = query.IteratorCost{
+		NumShards : *pb.GetCost().NumShards,
+		NumSeries : *pb.GetCost().NumSeries,
+		CachedValues : *pb.GetCost().CachedValues,
+		NumFiles : *pb.GetCost().NumFiles,
+		BlocksRead : *pb.GetCost().BlocksRead,
+		BlockSize : *pb.GetCost().BlockSize,
+	}
+	return nil
+}
+
+
+func encodeIteratorOptions(opt *query.IteratorOptions) *internal.IteratorOptions {
+	pb := &internal.IteratorOptions{
+		Interval:   encodeInterval(opt.Interval),
+		Dimensions: opt.Dimensions,
+		Fill:       proto.Int32(int32(opt.Fill)),
+		StartTime:  proto.Int64(opt.StartTime),
+		EndTime:    proto.Int64(opt.EndTime),
+		Ascending:  proto.Bool(opt.Ascending),
+		Limit:      proto.Int64(int64(opt.Limit)),
+		Offset:     proto.Int64(int64(opt.Offset)),
+		SLimit:     proto.Int64(int64(opt.SLimit)),
+		SOffset:    proto.Int64(int64(opt.SOffset)),
+		StripName:  proto.Bool(opt.StripName),
+		Dedupe:     proto.Bool(opt.Dedupe),
+		MaxSeriesN: proto.Int64(int64(opt.MaxSeriesN)),
+		Ordered:    proto.Bool(opt.Ordered),
+	}
+
+	// Set expression, if set.
+	if opt.Expr != nil {
+		pb.Expr = proto.String(opt.Expr.String())
+	}
+
+	// Set the location, if set.
+	if opt.Location != nil {
+		pb.Location = proto.String(opt.Location.String())
+	}
+
+	// Convert and encode aux fields as variable references.
+	if opt.Aux != nil {
+		pb.Fields = make([]*internal.VarRef, len(opt.Aux))
+		pb.Aux = make([]string, len(opt.Aux))
+		for i, ref := range opt.Aux {
+			pb.Fields[i] = encodeVarRef(ref)
+			pb.Aux[i] = ref.Val
+		}
+	}
+
+	// Encode group by dimensions from a map.
+	if opt.GroupBy != nil {
+		dimensions := make([]string, 0, len(opt.GroupBy))
+		for dim := range opt.GroupBy {
+			dimensions = append(dimensions, dim)
+		}
+		pb.GroupBy = dimensions
+	}
+
+	// Convert and encode sources to measurements.
+	if opt.Sources != nil {
+		sources := make([]*internal.Measurement, len(opt.Sources))
+		for i, source := range opt.Sources {
+			mm := source.(*influxql.Measurement)
+			sources[i] = encodeMeasurement(mm)
+		}
+		pb.Sources = sources
+	}
+
+	// Fill value can only be a number. Set it if available.
+	if v, ok := opt.FillValue.(float64); ok {
+		pb.FillValue = proto.Float64(v)
+	}
+
+	// Set condition, if set.
+	if opt.Condition != nil {
+		pb.Condition = proto.String(opt.Condition.String())
+	}
+
+	return pb
+}
+
+func encodeInterval(i query.Interval) *internal.Interval {
+	return &internal.Interval{
+		Duration: proto.Int64(i.Duration.Nanoseconds()),
+		Offset:   proto.Int64(i.Offset.Nanoseconds()),
+	}
+}
+func decodeInterval(pb *internal.Interval) query.Interval {
+	return query.Interval{
+		Duration: time.Duration(pb.GetDuration()),
+		Offset:   time.Duration(pb.GetOffset()),
+	}
+}
+
+func encodeMeasurement(mm *influxql.Measurement) *internal.Measurement {
+	pb := &internal.Measurement{
+		Database:        proto.String(mm.Database),
+		RetentionPolicy: proto.String(mm.RetentionPolicy),
+		Name:            proto.String(mm.Name),
+		SystemIterator:  proto.String(mm.SystemIterator),
+		IsTarget:        proto.Bool(mm.IsTarget),
+	}
+	if mm.Regex != nil {
+		pb.Regex = proto.String(mm.Regex.Val.String())
+	}
+	return pb
+}
+
+func decodeMeasurement(pb *internal.Measurement) (*influxql.Measurement, error) {
+	mm := &influxql.Measurement{
+		Database:        pb.GetDatabase(),
+		RetentionPolicy: pb.GetRetentionPolicy(),
+		Name:            pb.GetName(),
+		SystemIterator:  pb.GetSystemIterator(),
+		IsTarget:        pb.GetIsTarget(),
+	}
+
+	if pb.Regex != nil {
+		regex, err := regexp.Compile(pb.GetRegex())
+		if err != nil {
+			return nil, fmt.Errorf("invalid binary measurement regex: value=%q, err=%s", pb.GetRegex(), err)
+		}
+		mm.Regex = &influxql.RegexLiteral{Val: regex}
+	}
+
+	return mm, nil
+}
+
+func encodeVarRef(ref influxql.VarRef) *internal.VarRef {
+	return &internal.VarRef{
+		Val:  proto.String(ref.Val),
+		Type: proto.Int32(int32(ref.Type)),
+	}
+}
+
+func decodeVarRef(pb *internal.VarRef) influxql.VarRef {
+	return influxql.VarRef{
+		Val:  pb.GetVal(),
+		Type: influxql.DataType(pb.GetType()),
+	}
+}
+
+func decodeIteratorOptions(pb *internal.IteratorOptions) (*query.IteratorOptions, error) {
+	opt := &query.IteratorOptions{
+		Interval:   decodeInterval(pb.GetInterval()),
+		Dimensions: pb.GetDimensions(),
+		Fill:       influxql.FillOption(pb.GetFill()),
+		StartTime:  pb.GetStartTime(),
+		EndTime:    pb.GetEndTime(),
+		Ascending:  pb.GetAscending(),
+		Limit:      int(pb.GetLimit()),
+		Offset:     int(pb.GetOffset()),
+		SLimit:     int(pb.GetSLimit()),
+		SOffset:    int(pb.GetSOffset()),
+		StripName:  pb.GetStripName(),
+		Dedupe:     pb.GetDedupe(),
+		MaxSeriesN: int(pb.GetMaxSeriesN()),
+		Ordered:    pb.GetOrdered(),
+	}
+
+	// Set expression, if set.
+	if pb.Expr != nil {
+		expr, err := influxql.ParseExpr(pb.GetExpr())
+		if err != nil {
+			return nil, err
+		}
+		opt.Expr = expr
+	}
+
+	if pb.Location != nil {
+		loc, err := time.LoadLocation(pb.GetLocation())
+		if err != nil {
+			return nil, err
+		}
+		opt.Location = loc
+	}
+
+	// Convert and decode variable references.
+	if fields := pb.GetFields(); fields != nil {
+		opt.Aux = make([]influxql.VarRef, len(fields))
+		for i, ref := range fields {
+			opt.Aux[i] = decodeVarRef(ref)
+		}
+	} else if aux := pb.GetAux(); aux != nil {
+		opt.Aux = make([]influxql.VarRef, len(aux))
+		for i, name := range aux {
+			opt.Aux[i] = influxql.VarRef{Val: name}
+		}
+	}
+
+	// Convert and decode sources to measurements.
+	if pb.Sources != nil {
+		sources := make([]influxql.Source, len(pb.GetSources()))
+		for i, source := range pb.GetSources() {
+			mm, err := decodeMeasurement(source)
+			if err != nil {
+				return nil, err
+			}
+			sources[i] = mm
+		}
+		opt.Sources = sources
+	}
+
+	// Convert group by dimensions to a map.
+	if pb.GroupBy != nil {
+		dimensions := make(map[string]struct{}, len(pb.GroupBy))
+		for _, dim := range pb.GetGroupBy() {
+			dimensions[dim] = struct{}{}
+		}
+		opt.GroupBy = dimensions
+	}
+
+	// Set the fill value, if set.
+	if pb.FillValue != nil {
+		opt.FillValue = pb.GetFillValue()
+	}
+
+	// Set condition, if set.
+	if pb.Condition != nil {
+		expr, err := influxql.ParseExpr(pb.GetCondition())
+		if err != nil {
+			return nil, err
+		}
+		opt.Condition = expr
+	}
+
+	return opt, nil
+}

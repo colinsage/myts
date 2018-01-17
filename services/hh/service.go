@@ -18,14 +18,6 @@ import (
 // disabled hinted handoff service.
 var ErrHintedHandoffDisabled = fmt.Errorf("hinted handoff disabled")
 
-const (
-	writeShardReq       = "writeShardReq"
-	writeShardReqPoints = "writeShardReqPoints"
-	writeNodeReq        = "writeNodeReq"
-	writeNodeReqFail    = "writeNodeReqFail"
-	writeNodeReqPoints  = "writeNodeReqPoints"
-)
-
 // Service represents a hinted handoff service.
 type Service struct {
 	mu      sync.RWMutex

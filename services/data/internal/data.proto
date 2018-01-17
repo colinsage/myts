@@ -60,6 +60,26 @@ message MapTypeResponse {
     optional string Err = 2;
 }
 
+message IteratorCostRequest {
+    repeated uint64 ShardIDs = 1;
+    required Measurement Measurement = 2;
+    required IteratorOptions IteratorOptions = 3;
+}
+
+message IteratorCostResponse {
+    required IteratorCost  Cost = 1;
+    optional string Err = 2;
+}
+
+message IteratorCost {
+    required int64 NumShards = 1;
+    required int64 NumSeries = 2;
+    required int64 CachedValues = 3;
+    required int64 NumFiles = 4;
+    required int64 BlocksRead = 5;
+    required int64 BlockSize = 6;
+}
+
 message Point {
     required string Name       = 1;
     required string Tags       = 2;

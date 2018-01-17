@@ -14,6 +14,7 @@ import (
 	"context"
 	"github.com/influxdata/influxdb/coordinator"
 	"github.com/uber-go/zap"
+	"encoding/json"
 )
 
 // IteratorCreator is an interface that combines mapping fields and creating iterators.
@@ -143,7 +144,9 @@ func (c *DistributedShardMapper)  mapShards(mappings *ShardMappings, sources inf
 				MetaClient: c.MetaClient,
 				Timeout:    c.Timeout,
 			}
-			mappings.Remotes = append(mappings.Remotes, NewRemoteShardMapping(dialer, nodeID, shardMap))
+			rsm := NewRemoteShardMapping(dialer, nodeID, shardMap)
+			rsm.WithLogger(c.Logger)
+			mappings.Remotes = append(mappings.Remotes, rsm)
 		}
 
 		return nil
@@ -248,25 +251,25 @@ func (sm *ShardMappings) CreateIterator(ctx context.Context, m *influxql.Measure
 // Determines the potential cost for creating an iterator.
 func (sm *ShardMappings) IteratorCost(m *influxql.Measurement, opt query.IteratorOptions) (query.IteratorCost, error) {
 	var costs query.IteratorCost
-	if sm.Local != nil {
+	if sm.HasLocal {
 		cost, err := sm.Local.IteratorCost( m, opt)
 		if err == nil {
-			costs.Combine(cost)
+			costs = costs.Combine(cost)
 		} else{
-			return cost, err
+			return costs, err
 		}
 	}
 
 	for _,remote := range sm.Remotes {
 		cost, err := remote.IteratorCost(m, opt)
 		if err == nil {
-			costs.Combine(cost)
+			costs = costs.Combine(cost)
 		}else {
-			return cost, err
+			return costs, err
 		}
 	}
 
-	return costs,nil
+	return costs, nil
 }
 
 
@@ -280,6 +283,8 @@ type RemoteShardMapping struct {
 	nodeID   uint64
 	shardMap map[coordinator.Source][]uint64
 	//shardIDs []uint64
+
+	Logger zap.Logger
 }
 
 func NewRemoteShardMapping(dialer *NodeDialer, nodeID uint64, shardMap map[coordinator.Source][]uint64) *RemoteShardMapping{
@@ -290,14 +295,56 @@ func NewRemoteShardMapping(dialer *NodeDialer, nodeID uint64, shardMap map[coord
 	}
 }
 
-func (ic *RemoteShardMapping) IteratorCost( m *influxql.Measurement,opt query.IteratorOptions) (query.IteratorCost, error) {
 
-	//TODO
-	return query.IteratorCost{}, nil
+func (rsm *RemoteShardMapping) WithLogger(logger zap.Logger){
+	rsm.Logger = logger.With(zap.String("service", "remote-shard"))
+}
+func (rsm *RemoteShardMapping) IteratorCost( m *influxql.Measurement,opt query.IteratorOptions) (query.IteratorCost, error) {
+	conn, err := rsm.dialer.DialNode(rsm.nodeID)
+	if err != nil {
+		return query.IteratorCost{}, err
+	}
+	defer conn.Close()
+	source := coordinator.Source{
+		Database:        m.Database,
+		RetentionPolicy: m.RetentionPolicy,
+	}
+
+	sg := rsm.shardMap[source]
+	if sg == nil {
+		return query.IteratorCost{}, nil
+	}
+
+	// Write request.
+	if err := EncodeTLV(conn, iteratorCostRequestMessage, &IteratorCostRequest{
+		ShardIDs: sg,
+		Measurement: m,
+		IteratorOptions: &opt,
+	}); err != nil {
+		return query.IteratorCost{}, err
+	}
+
+	// Read the response.
+	var resp IteratorCostResponse
+	if _, err := DecodeTLV(conn, &resp); err != nil {
+		return query.IteratorCost{}, err
+	}
+
+	if len(resp.Error) != 0 {
+		return resp.IteratorCost, RpcError{
+			message: resp.Error,
+		}
+	}
+
+	rlt, _ := json.Marshal(resp)
+	rsm.Logger.Info(string(rlt[:]))
+
+	return resp.IteratorCost, nil
+
 }
 // CreateIterator creates a remote streaming iterator.
-func (ic *RemoteShardMapping) CreateIterator(ctx context.Context, m *influxql.Measurement,opt query.IteratorOptions) (query.Iterator, error) {
-	conn, err := ic.dialer.DialNode(ic.nodeID)
+func (rsm *RemoteShardMapping) CreateIterator(ctx context.Context, m *influxql.Measurement,opt query.IteratorOptions) (query.Iterator, error) {
+	conn, err := rsm.dialer.DialNode(rsm.nodeID)
 	if err != nil {
 		return nil, err
 	}
@@ -311,7 +358,7 @@ func (ic *RemoteShardMapping) CreateIterator(ctx context.Context, m *influxql.Me
 		// Write request.
 		if err := EncodeTLV(conn, createIteratorRequestMessage, &CreateIteratorRequest{
 			Measurement: m,
-			ShardIDs: ic.shardMap[source],
+			ShardIDs: rsm.shardMap[source],
 			Opt:      opt,
 		}); err != nil {
 			return err
@@ -345,26 +392,9 @@ func (ic *RemoteShardMapping) CreateIterator(ctx context.Context, m *influxql.Me
 	return query.NewReaderIterator(ctx, conn, t, query.IteratorStats{} ), nil
 }
 
-//func GetPointType(point query.Point) influxql.DataType {
-//	t := influxql.Unknown
-//	switch pt := point.(type) {
-//		case *query.FloatPoint:
-//			t = influxql.Float
-//		case *query.IntegerPoint:
-//			t = influxql.Integer
-//		case *query.StringPoint:
-//			t = influxql.String
-//		case *query.BooleanPoint:
-//			t = influxql.Boolean
-//		default:
-//			fmt.Printf("unexpected type %T\n", pt)
-//	}
-//
-//	return t
-//}
 // FieldDimensions returns the unique fields and dimensions across a list of sources.
-func (ic *RemoteShardMapping) FieldDimensions(m *influxql.Measurement) (fields map[string]influxql.DataType, dimensions map[string]struct{}, err error) {
-	conn, err := ic.dialer.DialNode(ic.nodeID)
+func (rsm *RemoteShardMapping) FieldDimensions(m *influxql.Measurement) (fields map[string]influxql.DataType, dimensions map[string]struct{}, err error) {
+	conn, err := rsm.dialer.DialNode(rsm.nodeID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -378,7 +408,7 @@ func (ic *RemoteShardMapping) FieldDimensions(m *influxql.Measurement) (fields m
 	// Write request.
 	if err := EncodeTLV(conn, fieldDimensionsRequestMessage, &FieldDimensionsRequest{
 		Measurement: m.Name,
-		ShardIDs: ic.shardMap[source],
+		ShardIDs: rsm.shardMap[source],
 		//Sources:  sources,
 	}); err != nil {
 		return nil, nil, err
@@ -392,9 +422,9 @@ func (ic *RemoteShardMapping) FieldDimensions(m *influxql.Measurement) (fields m
 	return resp.Fields, resp.Dimensions, resp.Err
 }
 
-func (ic *RemoteShardMapping) MapType (m *influxql.Measurement, field string) influxql.DataType {
+func (rsm *RemoteShardMapping) MapType (m *influxql.Measurement, field string) influxql.DataType {
 	//TODO
-	conn, err := ic.dialer.DialNode(ic.nodeID)
+	conn, err := rsm.dialer.DialNode(rsm.nodeID)
 	if err != nil {
 		return influxql.Unknown
 	}
@@ -404,7 +434,7 @@ func (ic *RemoteShardMapping) MapType (m *influxql.Measurement, field string) in
 		RetentionPolicy: m.RetentionPolicy,
 	}
 
-	sg := ic.shardMap[source]
+	sg := rsm.shardMap[source]
 	if sg == nil {
 		return influxql.Unknown
 	}
@@ -428,7 +458,7 @@ func (ic *RemoteShardMapping) MapType (m *influxql.Measurement, field string) in
 	return influxql.DataType(int(t))
 }
 
-func (ic *RemoteShardMapping)Close() error {
+func (rsm *RemoteShardMapping) Close() error {
 	return nil
 }
 

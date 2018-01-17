@@ -83,12 +83,6 @@ func NewService(c *Config) *Service {
 // Open opens the network listener and begins serving requests.
 func (s *Service) Open() error {
 
-	//listener, err := net.Listen("tcp", s.Config.BindAddress)
-	//if err != nil {
-	//	return err
-	//}
-	//s.Listener = listener
-
 	s.Logger.Info("Starting cluster service")
 	// Begin serving conections.
 	s.wg.Add(1)
@@ -216,6 +210,9 @@ func (s *Service) handleConn(conn net.Conn) {
 			return
 		case mapTypeRequestMessage:
 			s.processMapTypeRequest(conn)
+			return
+		case iteratorCostRequestMessage:
+			s.processIteratorCostRequest(conn)
 			return
 		default:
 			s.Logger.Info(fmt.Sprintf("cluster service message type not found: %d", typ))
@@ -414,7 +411,7 @@ func (s *Service) processMapTypeRequest(conn net.Conn) {
 
 		return nil
 	}(); err != nil {
-		s.Logger.Error(fmt.Sprintf("error reading FieldDimensions request: %s", err))
+		s.Logger.Error(fmt.Sprintf("error reading MapType request: %s", err))
 		EncodeTLV(conn, mapTypeResponseMessage, &MapTypeResponse{Err: err})
 		return
 	}
@@ -423,7 +420,56 @@ func (s *Service) processMapTypeRequest(conn net.Conn) {
 	if err := EncodeTLV(conn, mapTypeResponseMessage, &MapTypeResponse{
 		Type: int(mapType),
 	}); err != nil {
-		s.Logger.Error(fmt.Sprintf("error writing FieldDimensions response: %s", err))
+		s.Logger.Error(fmt.Sprintf("error writing MapType response: %s", err))
+		return
+	}
+}
+
+func (s *Service) processIteratorCostRequest(conn net.Conn) {
+	var cost query.IteratorCost
+	if err := func() error {
+		// Parse request.
+		var req IteratorCostRequest
+		if err := DecodeLV(conn, &req); err != nil {
+			return err
+		}
+
+		sg := s.TSDBStore.ShardGroup(req.ShardIDs)
+		if sg == nil {
+			cost = query.IteratorCost{}
+			s.Logger.Warn(fmt.Sprintf("not found shards for %v", req.ShardIDs))
+			return nil
+		}
+		if req.Measurement.Regex != nil {
+			var costs query.IteratorCost
+			measurements := sg.MeasurementsByRegex(req.Measurement.Regex.Val)
+			for _, measurement := range measurements {
+				c, err := sg.IteratorCost(measurement, *req.IteratorOptions)
+				if err != nil {
+					cost = query.IteratorCost{}
+					return err
+				}
+				costs = costs.Combine(c)
+			}
+			cost = costs
+		}
+		c, err := sg.IteratorCost(req.Measurement.Name, *req.IteratorOptions)
+		cost = c
+		return err
+	}(); err != nil {
+		s.Logger.Error(fmt.Sprintf("error reading IteratorCost request: %s", err))
+		EncodeTLV(conn, iteratorCostResponseMessage, &IteratorCostResponse{
+			Error: err.Error(),
+			IteratorCost: cost,
+			})
+		return
+	}
+
+	// Encode success response.
+	if err := EncodeTLV(conn, iteratorCostResponseMessage, &IteratorCostResponse{
+		IteratorCost: cost,
+	}); err != nil {
+		s.Logger.Error(fmt.Sprintf("error writing IteratorCost response: %s", err))
 		return
 	}
 }

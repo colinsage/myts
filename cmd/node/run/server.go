@@ -129,8 +129,6 @@ func NewServer(c *Config, buildInfo *BuildInfo) (*Server, error) {
 	//s.Monitor = monitor.New(s, c.Monitor)
 	//s.config.registerDiagnostics(s.Monitor)
 
-
-
 	s.Node = &meta.NodeInfo{}
 	if c.Global.MetaEnabled{
 		s.MetaService = thisMeta.NewService(c.Meta)
@@ -286,7 +284,6 @@ func (s *Server) Open() error {
 
 		s.PointsWriter.MetaClient = s.MetaClient
 		//s.Monitor.MetaClient = s.MetaClient
-
 		for _, svc := range s.Services {
 			svc.WithLogger(s.Logger)
 		}
@@ -356,8 +353,11 @@ func (s *Server) appendHintedHandoffService(c hh.Config) error {
 		s.Logger.Info("hinted handoff is disable.")
 		return nil
 	}
-	srv:= hh.NewService(c,s.ShardWriter,s.MetaClient)
+	srv:= hh.NewService(c, s.ShardWriter, s.MetaClient)
 	s.Services = append(s.Services, srv)
+
+	// register to points writer
+	s.PointsWriter.HintedHandoff = srv
 	return nil
 }
 // Close shuts down the meta and data stores and all services.

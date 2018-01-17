@@ -4,6 +4,8 @@ echo "kill all exist tsdb_node process !!!"
 pkill tsdb_node
 sleep 5s
 
+rm -rf _data/*
+
 echo "begin build ..."
 go build -o _data/tsdb_node ./cmd/node/main.go
 
@@ -41,3 +43,5 @@ curl -i -XPOST http://localhost:7086/write?db=mydb --data-binary "cpu_load_long,
 curl -i -XPOST http://localhost:7086/write?db=mydb --data-binary "cpu_load_long,host=server-02,region=us-west value=12 1514055567000000000"
 
 curl -G "http://localhost:9086/query?pretty=true" --data-urlencode "db=mydb" --data-urlencode "q=SELECT * FROM \"cpu_load_long\""
+
+curl -G "http://localhost:9086/query?pretty=true" --data-urlencode "db=mydb" --data-urlencode "q=EXPLAIN SELECT * FROM \"cpu_load_long\""
