@@ -311,6 +311,11 @@ func (fsm *storeFSM) applyUpdateRetentionPolicyCommand(cmd *internal.Command) in
 		value := time.Duration(v.GetDuration())
 		rpu.Duration = &value
 	}
+	if v.ShardDuration != nil {
+		value := time.Duration(v.GetShardDuration())
+		rpu.ShardGroupDuration = &value
+	}
+
 	if v.ReplicaN != nil {
 		value := int(v.GetReplicaN())
 		rpu.ReplicaN = &value

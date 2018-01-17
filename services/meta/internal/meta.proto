@@ -208,6 +208,7 @@ message UpdateRetentionPolicyCommand {
 	optional int64 Duration = 4;
 	optional uint32 ReplicaN = 5;
     optional bool MakeDefault = 6;
+    optional int64 ShardDuration = 7;
 }
 
 message CreateShardGroupCommand {
