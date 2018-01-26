@@ -15,7 +15,6 @@ import (
 	// Initialize the engine & index packages
 	_ "github.com/influxdata/influxdb/tsdb/engine"
 	_ "github.com/influxdata/influxdb/tsdb/index"
-	"github.com/influxdata/influxdb/tcp"
 
 	thisMeta "github.com/colinsage/myts/services/meta"
 	"github.com/colinsage/myts/services/data"
@@ -25,11 +24,13 @@ import (
 	"github.com/uber-go/zap"
 	"os"
 	"io"
-	"strconv"
 	"github.com/colinsage/myts/services/hh"
 	"strings"
 	"github.com/colinsage/myts/services/retention"
 	"github.com/colinsage/myts/services/httpd"
+	"github.com/colinsage/myts/grpc"
+	"github.com/colinsage/myts/services/restore"
+	"github.com/colinsage/myts/utils"
 )
 
 
@@ -64,6 +65,8 @@ type Server struct {
 	Cluster *data.Service
 
 	Services []Service
+
+	Rpc  *grpc.Service
 
 	TSDBStore     *tsdb.Store
 	QueryExecutor *query.QueryExecutor
@@ -199,6 +202,15 @@ func NewServer(c *Config, buildInfo *BuildInfo) (*Server, error) {
 		s.Cluster.Config = s.config.DataExt
 
 
+
+		s.Rpc = grpc.NewService()
+		s.Rpc.Address = utils.GetAdminHost(s.config.DataExt.BindAddress)
+
+		restore := restore.NewService()
+		restore.TSDBStore = s.TSDBStore
+		restore.MetaClient = s.MetaClient
+		s.Rpc.Services = append(s.Rpc.Services, restore)
+
 		// Initialize the monitor
 		//s.Monitor.Version = s.buildInfo.Version
 		//s.Monitor.Commit = s.buildInfo.Commit
@@ -216,32 +228,8 @@ func (s *Server) Err() <-chan error { return s.err }
 
 // Open opens the meta and data store and all services.
 func (s *Server) Open() error {
-	// Start profiling, if set.
-	//startProfile(s.CPUProfile, s.MemProfile)
-
-	// Open shared TCP connection.
-	s.Logger.Info("bind_addr:"+ strconv.Itoa(len(s.config.BindAddress)))
-	//TODO
-	if s.config.Global.DataEnabled  && len(s.config.BindAddress) != 0{
-		tcpAddr := s.config.Global.Hostname + s.config.BindAddress
-		ln, err := net.Listen("tcp", tcpAddr)
-		s.Logger.Info("listen tcp at : " +  tcpAddr)
-
-		if err != nil {
-			return fmt.Errorf("listen: %s", err)
-		}
-		s.Listener = ln
-
-		// Multiplex listener.
-		mux := tcp.NewMux()
-		go mux.Serve(ln)
-
-		s.Cluster.Listener = mux.Listen(data.MuxHeader)
-		s.config.DataExt.BindAddress = tcpAddr
-	}
-
 	if s.MetaService != nil {
-		//s.MetaService.RaftListener = mux.Listen(thisMeta.MuxHeader)
+
 		// Open meta service.
 		if s.config.Meta.LoggingEnabled {
 			s.MetaService.WithLogger(s.Logger)
@@ -310,6 +298,11 @@ func (s *Server) Open() error {
 			}
 		}
 
+		s.Rpc.WithLogger(s.Logger)
+		if err := s.Rpc.Open(); err != nil {
+			return fmt.Errorf("open rpc server: %s", err)
+		}
+
 	}
 
 	return nil
@@ -346,6 +339,7 @@ func (s *Server) appendHTTPDService(c httpd.Config) {
 
 	s.Services = append(s.Services, srv)
 }
+
 
 
 func (s *Server) appendHintedHandoffService(c hh.Config) error {
@@ -483,13 +477,6 @@ type Service interface {
 	Open() error
 	Close() error
 }
-
-
-//type tcpaddr struct{ host string }
-//
-//func (a *tcpaddr) Network() string { return "tcp" }
-//func (a *tcpaddr) String() string  { return a.host }
-
 
 type monitorPointsWriter data.PointsWriter
 

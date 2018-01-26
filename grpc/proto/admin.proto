@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package proto;
+
+message ShardSnapshotRequest {
+    string database = 1;
+    string retentionPolicy = 2;
+    uint64  shardID  = 3;
+    int64  since   = 4;
+}
+
+message ShardSnapshotResponse {
+    bytes fileBlock = 1;
+}
+
+message ShardRestoreRequest {
+    string database = 1;
+    string retentionPolicy = 2;
+    uint64  shardID  = 3;
+}
+
+message ShardRestoreResponse {
+    bool  success = 1;
+    string message = 2;
+}
+
+service RestoreService {
+    rpc shardBackup (ShardSnapshotRequest) returns ( stream ShardSnapshotResponse) {}
+
+    rpc shardRestore (ShardRestoreRequest) returns (ShardRestoreResponse){}
+}

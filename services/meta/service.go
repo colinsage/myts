@@ -57,10 +57,6 @@ func (s *Service) WithLogger(log zap.Logger) {
 func (s *Service) Open() error {
 	s.Logger.Info("Starting meta service")
 
-	//if s.RaftListener == nil {
-	//	panic("no raft listener set")
-	//}
-
 	// Open listener.
 	if s.https {
 		cert, err := tls.LoadX509KeyPair(s.cert, s.cert)
@@ -104,9 +100,7 @@ func (s *Service) Open() error {
 	if autoAssignPort(s.httpAddr) {
 		s.httpAddr, err = combineHostAndAssignedPort(s.ln, s.httpAddr)
 	}
-	//if autoAssignPort(s.raftAddr) {
-	//	s.raftAddr, err = combineHostAndAssignedPort(s.RaftListener, s.raftAddr)
-	//}
+
 	if err != nil {
 		return err
 	}

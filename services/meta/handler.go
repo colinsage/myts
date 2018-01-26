@@ -85,17 +85,25 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "GET":
 		switch r.URL.Path {
 		case "/ping":
-			h.logger.Info("in serve http ping")
 			h.WrapHandler("ping", h.servePing).ServeHTTP(w, r)
 		case "/lease":
 			h.WrapHandler("lease", h.serveLease).ServeHTTP(w, r)
 		case "/peers":
 			h.WrapHandler("peers", h.servePeers).ServeHTTP(w, r)
+		case "/datanodes":
+			h.WrapHandler("datanodes", h.serveDatanodes).ServeHTTP(w, r)
+		case "/metanodes":
+			h.WrapHandler("metanodes", h.serveMetanodes).ServeHTTP(w, r)
 		default:
 			h.WrapHandler("snapshot", h.serveSnapshot).ServeHTTP(w, r)
 		}
 	case "POST":
-		h.WrapHandler("execute", h.serveExec).ServeHTTP(w, r)
+		switch r.URL.Path {
+		case "/admin":
+			h.WrapHandler("admin", h.serveAdmin).ServeHTTP(w, r)
+		default:
+			h.WrapHandler("execute", h.serveExec).ServeHTTP(w, r)
+		}
 	default:
 		http.Error(w, "", http.StatusBadRequest)
 	}
@@ -121,6 +129,34 @@ func (h *handler) isClosed() bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func (h *handler) serveAdmin(w http.ResponseWriter, r *http.Request) {
+	w.Header().Add("Content-Type", "application/json")
+	enc := json.NewEncoder(w)
+
+	data,_ := h.store.snapshot()
+	if err := enc.Encode(data.DataNodes); err != nil {
+		h.httpError(err, w, http.StatusInternalServerError)
+	}
+}
+
+func (h *handler) serveDatanodes(w http.ResponseWriter, r *http.Request) {
+	w.Header().Add("Content-Type", "application/json")
+	enc := json.NewEncoder(w)
+	data,_ := h.store.snapshot()
+	if err := enc.Encode(data.DataNodes); err != nil {
+		h.httpError(err, w, http.StatusInternalServerError)
+	}
+}
+
+func (h *handler) serveMetanodes(w http.ResponseWriter, r *http.Request) {
+	w.Header().Add("Content-Type", "application/json")
+	enc := json.NewEncoder(w)
+	data,_ := h.store.snapshot()
+	if err := enc.Encode(data.MetaNodes); err != nil {
+		h.httpError(err, w, http.StatusInternalServerError)
 	}
 }
 

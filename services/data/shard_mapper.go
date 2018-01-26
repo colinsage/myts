@@ -15,6 +15,7 @@ import (
 	"github.com/influxdata/influxdb/coordinator"
 	"github.com/uber-go/zap"
 	"encoding/json"
+	"sync"
 )
 
 // IteratorCreator is an interface that combines mapping fields and creating iterators.
@@ -174,48 +175,62 @@ func (sm *ShardMappings) FieldDimensions(m *influxql.Measurement) (fields map[st
 	fields = make(map[string]influxql.DataType)
 	dimensions = make(map[string]struct{})
 
-	if sm.Local != nil {
-		f,d,err := sm.Local.FieldDimensions(m)
-		if err == nil{
-			for k, typ := range f {
-				fields[k] = typ
+	var wg sync.WaitGroup
+
+	if sm.HasLocal {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			f,d,err := sm.Local.FieldDimensions(m)
+			if err == nil{
+				for k, typ := range f {
+					fields[k] = typ
+				}
+				for k := range d {
+					dimensions[k] = struct{}{}
+				}
+			}else{
+				sm.Logger.Error(err.Error())
 			}
-			for k := range d {
-				dimensions[k] = struct{}{}
-			}
-		}else{
-			return nil,nil,err
-		}
+		}()
+
 	}
+
 	for _, remote := range sm.Remotes {
-		f,d,err := remote.FieldDimensions(m)
-		if err == nil{
-			for k, typ := range f {
-				fields[k] = typ
+		wg.Add(1)
+
+		go func(){
+			defer wg.Done()
+			f,d,err := remote.FieldDimensions(m)
+			if err == nil{
+				for k, typ := range f {
+					fields[k] = typ
+				}
+				for k := range d {
+					dimensions[k] = struct{}{}
+				}
+			}else{
+				sm.Logger.Error(err.Error())
 			}
-			for k := range d {
-				dimensions[k] = struct{}{}
-			}
-		}else{
-			//TODO
-			return nil,nil,err
-		}
+		}()
+
 	}
+	wg.Wait()
 	return fields,dimensions,nil
 }
 
 func (sm *ShardMappings) MapType(m *influxql.Measurement, field string) influxql.DataType {
 	//TODO
 	if sm.Local != nil {
-		input := sm.Local.MapType(m, field)
-		if input != influxql.Unknown {
-			return input
+		mtype := sm.Local.MapType(m, field)
+		if mtype != influxql.Unknown {
+			return mtype
 		}
 	}
 	for _,remote := range sm.Remotes {
-		input := remote.MapType(m,field)
-		if input != influxql.Unknown {
-			return input
+		mtype := remote.MapType(m,field)
+		if mtype != influxql.Unknown {
+			return mtype
 		}
 	}
 	return influxql.Unknown
@@ -224,16 +239,24 @@ func (sm *ShardMappings) MapType(m *influxql.Measurement, field string) influxql
 func (sm *ShardMappings) CreateIterator(ctx context.Context, m *influxql.Measurement, opt query.IteratorOptions) (query.Iterator, error) {
 	//TODO
 	itrs := make([]query.Iterator, 0, 100)
-
+	var wg sync.WaitGroup
+	mu := new(sync.RWMutex)
 	for _,remote := range sm.Remotes {
-		input, err := remote.CreateIterator(ctx, m, opt)
-		if err == nil {
-			if input != nil {
-				itrs = append(itrs, input )
+		wg.Add(1)
+		go func(){
+			defer wg.Done()
+			input, err := remote.CreateIterator(ctx, m, opt)
+			if err == nil {
+				if input != nil {
+					mu.Lock()
+					itrs = append(itrs, input )
+					mu.Unlock()
+				}
+			}else{
+				sm.Logger.Error("error:"+ err.Error())
 			}
-		}else{
-			sm.Logger.Error("error:"+ err.Error())
-		}
+		}()
+
 	}
 
 	if sm.HasLocal == true {
@@ -251,6 +274,9 @@ func (sm *ShardMappings) CreateIterator(ctx context.Context, m *influxql.Measure
 // Determines the potential cost for creating an iterator.
 func (sm *ShardMappings) IteratorCost(m *influxql.Measurement, opt query.IteratorOptions) (query.IteratorCost, error) {
 	var costs query.IteratorCost
+	var wg sync.WaitGroup
+	mu := new(sync.RWMutex)
+
 	if sm.HasLocal {
 		cost, err := sm.Local.IteratorCost( m, opt)
 		if err == nil {
@@ -261,13 +287,20 @@ func (sm *ShardMappings) IteratorCost(m *influxql.Measurement, opt query.Iterato
 	}
 
 	for _,remote := range sm.Remotes {
-		cost, err := remote.IteratorCost(m, opt)
-		if err == nil {
-			costs = costs.Combine(cost)
-		}else {
-			return costs, err
-		}
+		wg.Add(1)
+		go func(){
+			defer wg.Done()
+			cost, err := remote.IteratorCost(m, opt)
+			if err == nil {
+				mu.Lock()
+				costs = costs.Combine(cost)
+				mu.Unlock()
+			}else {
+				sm.Logger.Error(err.Error())
+			}
+		}()
 	}
+	wg.Wait()
 
 	return costs, nil
 }
