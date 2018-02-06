@@ -10,7 +10,7 @@ func GetAdminHost(tcpHost string) string {
 	host, port, _ := net.SplitHostPort(tcpHost)
 
 	p,_ := strconv.Atoi(port)
-	p += 1
+	p -= 2
 
 	port = strconv.Itoa(p)
 	return net.JoinHostPort(host, port)

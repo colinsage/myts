@@ -13,11 +13,22 @@ import (
 )
 
 // Data represents the top level collection of all metadata.
+
+type ShardStatus int32
+
+const (
+	ShardWrite ShardStatus  = 1 + iota
+	ShardRead
+	ShardWriteRead
+)
+
 type Data struct {
 	Data meta.Data
 
 	MetaNodes []meta.NodeInfo
 	DataNodes []meta.NodeInfo
+
+	ShardStatus map[uint64]map[uint64]ShardStatus
 	MaxNodeID       uint64
 }
 
@@ -73,6 +84,7 @@ func (data *Data) UpdateRetentionPolicy(database, name string, rpu *meta.Retenti
 // succeeds but a data node fails.
 func (data *Data) DropShard(id uint64) {
 	 data.Data.DropShard(id)
+	 delete(data.ShardStatus, id)
 }
 
 // ShardGroups returns a list of all shard groups on a database and retention policy.
@@ -137,6 +149,11 @@ func (data *Data) CreateShardGroup(database, policy string, timestamp time.Time)
 	for i := range sgi.Shards {
 		data.Data.MaxShardID++
 		sgi.Shards[i] = meta.ShardInfo{ID: data.Data.MaxShardID}
+
+		if data.ShardStatus == nil {
+			data.ShardStatus = make(map[uint64]map[uint64]ShardStatus)
+		}
+		data.ShardStatus[data.Data.MaxShardID] = make(map[uint64]ShardStatus)
 	}
 
 	// Assign data nodes to shards via round robin.
@@ -147,6 +164,9 @@ func (data *Data) CreateShardGroup(database, policy string, timestamp time.Time)
 		for j := 0; j < replicaN; j++ {
 			nodeID := data.DataNodes[nodeIndex%len(data.DataNodes)].ID
 			si.Owners = append(si.Owners, meta.ShardOwner{NodeID: nodeID})
+
+			//new shard read&write
+			data.ShardStatus[si.ID][nodeID] = ShardWriteRead
 			nodeIndex++
 		}
 	}
@@ -312,6 +332,27 @@ func (data *Data) marshal() *internal.Data {
 	//	pb.Users[i] = data.Data.Users[i].MarshalBinary()
 	//}
 
+	if len(data.ShardStatus) > 0 {
+		pb.ShardRWStatus = make([]*internal.ShardStatus, len(data.ShardStatus))
+		i := 0
+		for shardID, ownerStatus := range data.ShardStatus{
+			status := &internal.ShardStatus{
+				ShardID: proto.Uint64(shardID),
+			}
+			status.Status = make([]*internal.ShardOwnerStatus, len(ownerStatus))
+			j := 0
+			for nodeID, sos := range ownerStatus{
+				status.Status[j] = &internal.ShardOwnerStatus{
+					OwnerNodeID: proto.Uint64(nodeID),
+					Status: proto.Int32(int32(sos)),
+				}
+				j++
+			}
+			pb.ShardRWStatus[i] = status
+			i++
+		}
+	}
+
 	pb.MaxNodeID = proto.Uint64(data.MaxNodeID)
 	return pb
 }
@@ -347,6 +388,18 @@ func (data *Data) unmarshal(pb *internal.Data) {
 	for i, x := range pb.GetDataNodes() {
 		data.DataNodes[i] = *unmarshalNodeInfo(x)
 	}
+
+	data.ShardStatus = make(map[uint64]map[uint64]ShardStatus)
+	for _, x := range pb.ShardRWStatus {
+		for _, y := range x.Status {
+			if data.ShardStatus[*x.ShardID] == nil {
+				data.ShardStatus[*x.ShardID] = make(map[uint64]ShardStatus)
+			}
+			data.ShardStatus[*x.ShardID][*y.OwnerNodeID] = ShardStatus(*y.Status)
+		}
+	}
+
+	data.MaxNodeID = pb.GetMaxNodeID()
 }
 
 // MarshalBinary encodes the metadata to a binary format.
@@ -446,6 +499,26 @@ func (data *Data) setDataNode(nodeID uint64, host, tcpHost string) error {
 	return nil
 }
 
+func (data *Data) UpdateShard(id uint64, newOwners []uint64) {
+	for di, d := range data.Data.Databases {
+		for ri, rp := range d.RetentionPolicies {
+			for sgi, sg := range rp.ShardGroups {
+				for si, s := range sg.Shards {
+					if s.ID == id {
+						for _,ownerNodeId := range newOwners {
+							s.Owners = append(s.Owners, meta.ShardOwner{NodeID: ownerNodeId})
+							data.Data.Databases[di].RetentionPolicies[ri].ShardGroups[sgi].Shards[si].Owners = s.Owners
+							if data.ShardStatus[id] != nil {
+								data.ShardStatus[id][ownerNodeId] = ShardWrite
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
 // DeleteDataNode removes a node from the Meta store.
 //
 // If necessary, DeleteDataNode reassigns ownership of any shards that
@@ -486,6 +559,8 @@ func (data *Data) DeleteDataNode(id uint64) error {
 					for i, owner := range s.Owners {
 						if owner.NodeID == id {
 							nodeIdx = i
+
+							delete(data.ShardStatus[s.ID], id)
 						}
 						nodeOwnerFreqs[int(owner.NodeID)]++
 					}

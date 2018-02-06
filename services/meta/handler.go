@@ -90,10 +90,14 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.WrapHandler("lease", h.serveLease).ServeHTTP(w, r)
 		case "/peers":
 			h.WrapHandler("peers", h.servePeers).ServeHTTP(w, r)
+		case "/leader":
+			h.WrapHandler("leader", h.serveLeader).ServeHTTP(w, r)
 		case "/datanodes":
 			h.WrapHandler("datanodes", h.serveDatanodes).ServeHTTP(w, r)
 		case "/metanodes":
 			h.WrapHandler("metanodes", h.serveMetanodes).ServeHTTP(w, r)
+		case "/dump":
+			h.WrapHandler("dump", h.serveDump).ServeHTTP(w, r)
 		default:
 			h.WrapHandler("snapshot", h.serveSnapshot).ServeHTTP(w, r)
 		}
@@ -132,12 +136,60 @@ func (h *handler) isClosed() bool {
 	}
 }
 
+type response struct {
+	OK bool
+	ERROR   string
+}
+
 func (h *handler) serveAdmin(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Content-Type", "application/json")
-	enc := json.NewEncoder(w)
 
+	resp := &response{
+		OK: true,
+	}
+	enc := json.NewEncoder(w)
+	cmd := r.FormValue("cmd")
+	switch cmd {
+		case "delete":
+			nodeID:= r.FormValue("node_id")
+			id, _ := strconv.Atoi(nodeID)
+			h.deleteDatanode(uint64(id))
+			//notify rebalance
+
+		default:
+			resp.ERROR = "no command."
+	}
+
+	if err := enc.Encode(resp); err != nil {
+		h.httpError(err, w, http.StatusInternalServerError)
+	}
+}
+
+func (h *handler) deleteDatanode(id uint64) error{
+	c := &internal.DeleteDataNodeCommand{
+		ID: proto.Uint64(id),
+	}
+	typ := internal.Command_DeleteDataNodeCommand
+	cmd := &internal.Command{ Type: &typ}
+	if err := proto.SetExtension(cmd, internal.E_DeleteDataNodeCommand_Command, c); err != nil {
+		panic(err)
+	}
+
+	b, err := proto.Marshal(cmd)
+	if err != nil {
+		return err
+	}
+
+	error := h.store.apply(b)
+
+	return error
+}
+
+func (h *handler) serveDump(w http.ResponseWriter, r *http.Request) {
+	w.Header().Add("Content-Type", "application/json")
+	enc := json.NewEncoder(w)
 	data,_ := h.store.snapshot()
-	if err := enc.Encode(data.DataNodes); err != nil {
+	if err := enc.Encode(data); err != nil {
 		h.httpError(err, w, http.StatusInternalServerError)
 	}
 }
@@ -156,6 +208,14 @@ func (h *handler) serveMetanodes(w http.ResponseWriter, r *http.Request) {
 	enc := json.NewEncoder(w)
 	data,_ := h.store.snapshot()
 	if err := enc.Encode(data.MetaNodes); err != nil {
+		h.httpError(err, w, http.StatusInternalServerError)
+	}
+}
+
+func (h *handler) serveLeader(w http.ResponseWriter, r *http.Request) {
+	w.Header().Add("Content-Type", "application/json")
+	enc := json.NewEncoder(w)
+	if err := enc.Encode(h.store.leader()); err != nil {
 		h.httpError(err, w, http.StatusInternalServerError)
 	}
 }
@@ -209,7 +269,6 @@ func (h *handler) serveExec(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewEncoder(w).Encode(node); err != nil {
 			h.httpError(err, w, http.StatusInternalServerError)
 		}
-
 		return
 	}
 

@@ -16,7 +16,8 @@ message ShardSnapshotResponse {
 message ShardRestoreRequest {
     string database = 1;
     string retentionPolicy = 2;
-    uint64  shardID  = 3;
+    uint64 shardID  = 3;
+    uint64 fromNodeId =4;
 }
 
 message ShardRestoreResponse {

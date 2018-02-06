@@ -696,6 +696,15 @@ func (c *Client) DropShard(id uint64) error {
 	return c.retryUntilExec(internal.Command_DropShardCommand, internal.E_DropShardCommand_Command, cmd)
 }
 
+func  (c *Client) ShardIsReadable(shardID, nodeID uint64) bool {
+	s := c.data().ShardStatus[shardID][nodeID]
+
+	if s == ShardRead || s == ShardWriteRead {
+		return true
+	}
+	return false
+}
+
 func  (c *Client) ShardInfo(shardID uint64) meta.ShardInfo{
 	var shardInfo = meta.ShardInfo{}
 	outer:

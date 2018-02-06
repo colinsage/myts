@@ -22,6 +22,8 @@ message Data {
     // added for 0.10.0
     repeated NodeInfo DataNodes = 10;
     repeated NodeInfo MetaNodes = 11;
+
+    repeated ShardStatus ShardRWStatus = 12;
 }
 
 message NodeInfo {
@@ -95,6 +97,16 @@ message UserPrivilege {
 	required int32 Privilege = 2;
 }
 
+message ShardStatus {
+    required uint64 ShardID = 1;
+    repeated ShardOwnerStatus Status = 2;
+}
+
+message ShardOwnerStatus {
+    required uint64 OwnerNodeID = 1;
+    required int32  Status = 2;
+}
+
 
 //========================================================================
 //
@@ -135,6 +147,7 @@ message Command {
 		DeleteDataNodeCommand            = 28;
 		SetMetaNodeCommand               = 29;
         DropShardCommand                 = 30;
+        UpdateShardCommand               = 31;
     }
 
     required Type type = 1;
@@ -393,4 +406,13 @@ message DropShardCommand {
         optional DropShardCommand command = 130;
     }
     required uint64 ID = 1;
+}
+
+message UpdateShardCommand {
+    extend Command {
+        optional UpdateShardCommand command = 131;
+    }
+    required uint64 ID = 1;
+    repeated uint64 NewOwnerNodeIDs = 2;
+    optional bytes  NewShardStatus = 3;
 }

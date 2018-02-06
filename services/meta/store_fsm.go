@@ -89,6 +89,8 @@ func (fsm *storeFSM) Apply(l *raft.Log) interface{} {
 			return fsm.applyCreateDataNodeCommand(&cmd)
 		case internal.Command_DeleteDataNodeCommand:
 			return fsm.applyDeleteDataNodeCommand(&cmd)
+		case internal.Command_UpdateShardCommand:
+			return fsm.applyUpdateShardCommand(&cmd)
 		default:
 			panic(fmt.Errorf("cannot apply command: %x", l.Data))
 		}
@@ -103,6 +105,30 @@ func (fsm *storeFSM) Apply(l *raft.Log) interface{} {
 	s.dataChanged = make(chan struct{})
 
 	return err
+}
+
+func (fsm *storeFSM) applyUpdateShardCommand(cmd *internal.Command) interface{} {
+	ext, _ := proto.GetExtension(cmd, internal.E_UpdateShardCommand_Command)
+	v := ext.(*internal.UpdateShardCommand)
+
+	other := fsm.data.Clone()
+
+	if len(v.NewOwnerNodeIDs) > 0 {
+		fsm.logger.Info(fmt.Sprintf("add new owner %v", v.NewOwnerNodeIDs))
+		other.UpdateShard(*v.ID, v.NewOwnerNodeIDs)
+	}
+
+	if len(v.NewShardStatus) > 0 {
+		status := &internal.ShardOwnerStatus{}
+		proto.Unmarshal(v.NewShardStatus, status)
+
+		other.ShardStatus[*v.ID][*status.OwnerNodeID] = ShardStatus(*status.Status)
+
+	}
+
+	fsm.data = other
+
+	return nil
 }
 
 func (fsm *storeFSM) applyRemovePeerCommand(cmd *internal.Command) interface{} {

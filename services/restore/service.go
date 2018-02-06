@@ -51,21 +51,13 @@ func (s *Service) WithLogger(log zap.Logger) {
 }
 
 func (s *Service) ShardRestore(cxt context.Context, req *proto.ShardRestoreRequest) (*proto.ShardRestoreResponse, error){
+	s.Logger.Info(fmt.Sprintf("got restore request for shard %d, from node %d",
+		     req.ShardID, req.GetFromNodeId()))
 
-	now := time.Now()
-
-	var remote string
-	// 1. get backup to local
-	shardInfo := s.MetaClient.ShardInfo(req.ShardID)
-	for _, owner := range shardInfo.Owners {
-		if owner.NodeID != s.Node.ID {
-			remoteNode,_ := s.MetaClient.DataNode(owner.NodeID)
-			remote = utils.GetAdminHost(remoteNode.TCPHost)
-		}
-	}
+	fromNode, _ := s.MetaClient.DataNode(req.FromNodeId)
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithInsecure())
-	conn, err := grpc.Dial(remote, opts...)
+	conn, err := grpc.Dial(utils.GetAdminHost(fromNode.TCPHost), opts...)
 	if err != nil {
 		fmt.Println("dial,",err)
 	}
@@ -77,26 +69,27 @@ func (s *Service) ShardRestore(cxt context.Context, req *proto.ShardRestoreReque
 		Database: req.Database,
 		RetentionPolicy: req.RetentionPolicy,
 		ShardID: req.ShardID,
-		Since: now.Unix(),
+		Since: 0,
 	}
 	stream , _ := client.ShardBackup(context.Background(), backupReq)
 
 	r, w := io.Pipe()
 	defer r.Close()
-	defer w.Close()
-
 	go func(){
+		defer w.Close()
 		for {
 			resp ,err := stream.Recv()
 			if err == io.EOF {
 				break
 			}
 			if err != nil {
-				s.Logger.Error("read stream,", zap.String("err",err.Error()))
+				s.Logger.Error("read stream interupted,", zap.String("err",err.Error()))
+				break
 			}
 
 			n, e := w.Write(resp.FileBlock)
-			if e!= nil {
+		//	s.Logger.Info(fmt.Sprintf("write to reader pipe, %d ", n))
+			if e != nil {
 				s.Logger.Error("write file,", zap.String("err",err.Error()))
 			}else if n==0 {
 				s.Logger.Warn("write file 0 bytes!")
@@ -108,8 +101,17 @@ func (s *Service) ShardRestore(cxt context.Context, req *proto.ShardRestoreReque
 	resp := &proto.ShardRestoreResponse{
 		Success: true,
 	}
+	shard := s.TSDBStore.Shard(req.ShardID)
+	if shard == nil {
+		s.TSDBStore.CreateShard(req.Database, req.RetentionPolicy,req.ShardID,true)
+	}
 	if err :=s.TSDBStore.RestoreShard(req.ShardID, r); err!= nil{
-		s.Logger.Error(err.Error())
+		//TODO modify restore or use inmem index
+		//if err.Error() == "can only read from tsm file" {
+		//	s.Logger.Error(fmt.Sprintf("restore read backup error, %s", err.Error()))
+		//	return resp, nil
+		//}
+		s.Logger.Error(fmt.Sprintf("restore read backup error, %s", err.Error()))
 		resp.Success = false
 		resp.Message = err.Error()
 		return resp, err
@@ -119,6 +121,7 @@ func (s *Service) ShardRestore(cxt context.Context, req *proto.ShardRestoreReque
 
 func (s *Service) ShardBackup(req *proto.ShardSnapshotRequest, srv proto.RestoreService_ShardBackupServer) error{
 	//TODO 1. time convert 2.write target choose
+	s.Logger.Info(fmt.Sprintf("got backup request for shard %d, since %d", req.ShardID, req.Since))
 	since:= time.Unix(req.Since,0)
 	id := req.ShardID
 
@@ -133,22 +136,27 @@ func (s *Service) ShardBackup(req *proto.ShardSnapshotRequest, srv proto.Restore
 	go func(){
 		defer w.Close()
 		if err := s.TSDBStore.BackupShard(req.ShardID, since, w); err != nil {
-			s.Logger.Error(err.Error())
+			s.Logger.Error(fmt.Sprintf("backup error, %s", err.Error()))
 		}
 	}()
 
 	buf := make ([]byte, 4096)
-
+	length := 0
 	for {
 		n, err  := r.Read(buf)
 		if n == 0 || err == io.EOF{
 			break
 		}
+
+		//s.Logger.Info(fmt.Sprintf("read %d, content=%v", n, buf[:n]))
 		srv.Send(&proto.ShardSnapshotResponse{
 			FileBlock: buf[:n],
 		})
+
+		length += n
 	}
 
+	s.Logger.Info(fmt.Sprintf("got backup request for shard %d is done. size=%d", req.ShardID, length))
 	return nil
 }
 

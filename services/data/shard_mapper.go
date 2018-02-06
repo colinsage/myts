@@ -16,6 +16,7 @@ import (
 	"github.com/uber-go/zap"
 	"encoding/json"
 	"sync"
+	"fmt"
 )
 
 // IteratorCreator is an interface that combines mapping fields and creating iterators.
@@ -36,6 +37,7 @@ type DistributedShardMapper struct {
 	MetaClient interface {
 		ShardGroupsByTimeRange(database, policy string, min, max time.Time) (a []meta.ShardGroupInfo, err error)
 		DataNode(id uint64) (*meta.NodeInfo, error)
+		ShardIsReadable(shardID, nodeID uint64) bool
 	}
 
 	TSDBStore interface {
@@ -93,6 +95,7 @@ func (c *DistributedShardMapper)  mapShards(mappings *ShardMappings, sources inf
 				for _, g := range groups {
 					for _, si := range g.Shards {
 						var nodeID uint64
+						found := false
 						if si.OwnedBy(c.Node.ID) {
 							nodeID = c.Node.ID
 						} else if len(si.Owners) > 0 {
@@ -102,6 +105,25 @@ func (c *DistributedShardMapper)  mapShards(mappings *ShardMappings, sources inf
 							// we don't want this to panic by trying to randomly select a node.
 							continue
 						}
+						if c.MetaClient.ShardIsReadable(si.ID, nodeID) {
+							found = true
+						}else {
+							inner:
+							for i:=0; i< len(si.Owners) ;i++ {
+								nodeID = si.Owners[i].NodeID
+								if c.MetaClient.ShardIsReadable(si.ID, nodeID) {
+									found = true
+									break inner
+								}
+
+							}
+						}
+
+						if !found {
+							c.Logger.Error(fmt.Sprintf("not found node for shard %d", si.ID))
+							continue
+						}
+
 						ss := shardIDsByNodeID[nodeID]
 
 						if ss == nil{
@@ -262,12 +284,15 @@ func (sm *ShardMappings) CreateIterator(ctx context.Context, m *influxql.Measure
 	if sm.HasLocal == true {
 		input, err := sm.Local.CreateIterator(ctx, m, opt)
 		if err == nil {
+			mu.Lock()
 			itrs = append(itrs, input )
+			mu.Unlock()
 		}else{
 			sm.Logger.Error(err.Error())
 		}
 	}
 
+	wg.Wait()
 	return query.Iterators(itrs).Merge(opt)
 }
 

@@ -16,6 +16,12 @@ import (
 	"github.com/colinsage/myts/services/meta/internal"
 	"github.com/influxdata/influxdb/services/meta"
 	"github.com/uber-go/zap"
+	"github.com/colinsage/myts/utils"
+	"google.golang.org/grpc"
+
+	pb "github.com/colinsage/myts/grpc/proto"
+
+	"context"
 )
 
 // Retention policy settings.
@@ -26,6 +32,8 @@ const (
 	// maxAutoCreatedRetentionPolicyReplicaN is the maximum replication factor that will
 	// be set for auto-created retention policies.
 	maxAutoCreatedRetentionPolicyReplicaN = 2
+
+	defaultReplicaN = 2
 )
 
 // Raft configuration.
@@ -168,6 +176,7 @@ func (s *store) open(raftln net.Listener) error {
 		}
 	}
 
+	go func() { s.rebalance(s.closing) }()
 	s.logger.Info("open store done")
 	return nil
 }
@@ -457,5 +466,207 @@ func (s *store) setMetaNode(addr, raftAddr string) error {
 	}
 	s.logger.Info("set meta node apply begin")
 	return s.apply(b)
+}
+
+// timer task to check shard rebalance
+
+func (s *store) rebalance( closing <-chan struct{}) {
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-closing:
+			return
+		case <-t.C:
+			isNeed, tasks := s.needRebalance()
+			if isNeed {
+				s.logger.Info(fmt.Sprintf("need reblance for %d shards", len(tasks)))
+				go func() {
+					s.doRebalance(tasks)
+				}()
+			}
+		}
+	}
+}
+
+type ShardRestoreTask struct {
+	Database string
+	RetentionPolicy string
+	ShardID uint64
+	CurrentOwners []meta.ShardOwner
+	NewOwners []meta.ShardOwner
+	NewOwnerAddress map[uint64]string
+}
+
+func (s *store) needRebalance() (bool, []ShardRestoreTask){
+	if !s.isLeader() {
+		return false, nil
+	}
+
+	curData := s.data.Clone()
+
+	if len(curData.DataNodes) == 0 {
+		return false, nil
+	}
+	shardRestoreTask := make([]ShardRestoreTask, 0)
+	nodeIndex := int(curData.Data.Index % uint64(len(curData.DataNodes)))
+	for _, dbi := range curData.Data.Databases {
+		for _, rpi := range dbi.RetentionPolicies {
+			for _, sgi := range rpi.ShardGroups {
+				for _, si := range sgi.Shards {
+					if len(si.Owners) < defaultReplicaN {
+						task := ShardRestoreTask{
+							Database: dbi.Name,
+							RetentionPolicy: rpi.Name,
+						}
+						task.ShardID = si.ID
+						task.CurrentOwners = si.Owners
+						var newOwners []meta.ShardOwner
+						nodeID := curData.DataNodes[nodeIndex%len(curData.DataNodes)].ID
+
+						need := defaultReplicaN - len(si.Owners)
+						maxChooseCount := 5
+						choose:
+						for need > 0 {
+							nodeIndex++
+							maxChooseCount--
+
+							if maxChooseCount < 0 {
+								break choose
+							}
+							exist := false
+							for _, owner := range si.Owners {
+								if nodeID == owner.NodeID {
+									exist = true
+								}
+							}
+							if !exist {
+								newOwners = append(newOwners, meta.ShardOwner{NodeID: nodeID})
+								need--
+								for _, datanode := range curData.DataNodes {
+									if datanode.ID == nodeID {
+										if task.NewOwnerAddress == nil {
+											task.NewOwnerAddress = make(map[uint64]string)
+										}
+										task.NewOwnerAddress[nodeID] = utils.GetAdminHost(datanode.TCPHost)
+									}
+								}
+							}
+						}
+						task.NewOwners = newOwners
+						shardRestoreTask = append(shardRestoreTask, task)
+						
+						nodeID = curData.DataNodes[nodeIndex%len(curData.DataNodes)].ID
+
+					}
+				}
+			}
+		}
+	}
+	if len(shardRestoreTask) > 0{
+		return true, shardRestoreTask
+	}
+	return false, nil
+}
+
+
+// 1. change meta
+// 2. send restore command
+func (s *store) doRebalance(tasks []ShardRestoreTask) {
+	for _, task := range tasks {
+		// apply
+		if len(task.CurrentOwners) == 0 {
+			s.logger.Warn(fmt.Sprintf("shard %d current owners is zero.", task.ShardID))
+			continue
+		}
+		s.logger.Info(fmt.Sprintf("restore shard %d from %d to %v ",
+			task.ShardID, task.CurrentOwners[0].NodeID, task.NewOwners))
+		var newOwnerNodeIDs []uint64
+		for _, owner := range task.NewOwners{
+			newOwnerNodeIDs = append(newOwnerNodeIDs, owner.NodeID)
+		}
+
+		c := &internal.UpdateShardCommand{
+			ID: proto.Uint64(task.ShardID),
+			NewOwnerNodeIDs:  newOwnerNodeIDs,
+		}
+		typ := internal.Command_UpdateShardCommand
+		cmd := &internal.Command{ Type: &typ}
+		if err := proto.SetExtension(cmd, internal.E_UpdateShardCommand_Command, c); err != nil {
+			panic(err)
+		}
+
+		b, err := proto.Marshal(cmd)
+		if err != nil {
+			s.logger.Error(err.Error())
+		}
+		s.apply(b)
+
+		for _, newOwner := range task.NewOwners {
+			s.restoreShard(task.Database, task.RetentionPolicy,
+				task.NewOwnerAddress[newOwner.NodeID],
+				task.ShardID, task.CurrentOwners[0].NodeID,
+				newOwner.NodeID)
+		}
+		s.logger.Info("do rebalance done.")
+
+	}
+}
+
+func (s *store) restoreShard(database, retentionPolicy, address string, shardID, from, to uint64){
+	var opts []grpc.DialOption
+	opts = append(opts, grpc.WithInsecure())
+	conn, err := grpc.Dial(address, opts...)
+	if err != nil {
+		fmt.Println("dial,",err)
+	}
+	defer conn.Close()
+
+	client := pb.NewRestoreServiceClient(conn)
+
+	restoreReq := &pb.ShardRestoreRequest{
+		Database: database,
+		RetentionPolicy: retentionPolicy,
+		ShardID: shardID,
+		FromNodeId: from,
+	}
+
+	resp ,error  := client.ShardRestore(context.Background(), restoreReq)
+
+	if error != nil {
+		s.logger.Error(fmt.Sprintf("shard retore for %s failed, error: %s",
+				address ,error.Error()))
+		return
+	}
+
+	if resp.Success {
+		// update shard state
+		status := &internal.ShardOwnerStatus{
+			OwnerNodeID: proto.Uint64(to),
+			Status: proto.Int32(int32(ShardWriteRead)),
+		}
+
+		statusBytes, _ := proto.Marshal(status)
+		c := &internal.UpdateShardCommand{
+			ID: proto.Uint64(shardID),
+			NewShardStatus: statusBytes,
+		}
+		typ := internal.Command_UpdateShardCommand
+		cmd := &internal.Command{ Type: &typ}
+		if err := proto.SetExtension(cmd, internal.E_UpdateShardCommand_Command, c); err != nil {
+			panic(err)
+		}
+
+		b, err := proto.Marshal(cmd)
+		if err != nil {
+			s.logger.Error(err.Error())
+			return
+		}
+		s.apply(b)
+
+	}else{
+		s.logger.Warn(fmt.Sprintf("restore failed. %s", resp.Message))
+	}
+
 }
 
